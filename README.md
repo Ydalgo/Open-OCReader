@@ -1,176 +1,182 @@
 # Open OCReader 📄🔍⚡
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey)]()
-[![100% Offline](https://img.shields.io/badge/Privacy-100%25%20Offline-success)]()
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Ydalgo/Open-OCReader/pulls)
+[![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Versión de Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
+[![Plataforma](https://img.shields.io/badge/plataforma-windows%20%7C%20linux%20%7C%20macos-lightgrey)]()
+[![100% Offline](https://img.shields.io/badge/Privacidad-100%25%20Offline-success)]()
+[![Contribuciones bienvenidas](https://img.shields.io/badge/PRs-bienvenidas-brightgreen.svg)](https://github.com/Ydalgo/Open-OCReader/pulls)
 
-**Open OCReader** is an open-source, lightweight, and 100% offline document digitization and semantic analysis suite.
+**Open OCReader** es una suite de código abierto, ligera y **100% local (offline)** para la digitalización de documentos y el análisis semántico con inteligencia artificial.
 
-Designed as an agile, private, and developer-friendly alternative to commercial software like ABBYY FineReader, **Open OCReader** bridges the gap between **pixel-perfect document conversion** (Searchable Sandwich PDF, DOCX, XLSX) and **modern intelligent document understanding** (VLM / LLM).
+Concebida como una alternativa ágil, privada y libre a soluciones comerciales privativas como ABBYY FineReader, **Open OCReader** une dos mundos complementarios: la **conversión fiel de documentos** (PDF sandwich buscable, DOCX, XLSX) y la **comprensión documental inteligente** (modelos de visión y lenguaje VLM / LLM).
 
 ---
 
-## 🌟 The Vision: A Two-Pillar Architecture
+## 🌟 Visión: Arquitectura en Dos Pilares
 
-Most OCR tools either alter your document layout or depend on heavy, slow cloud APIs. **Open OCReader** separates concerns into two specialized layers:
+La mayoría de herramientas OCR distorsionan el diseño del documento o dependen de servicios pesados en la nube. **Open OCReader** desacopla el proceso en dos capas especializadas:
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│               Input: Scanned Image / PDF               │
+│           Entrada: Imagen escaneada o PDF              │
 └───────────────────────────┬────────────────────────────┘
                             │
                ┌────────────┴────────────┐
                ▼                         ▼
    ┌───────────────────────┐ ┌───────────────────────┐
-   │       PILLAR 1        │ │       PILLAR 2        │
-   │  Structural Digitize  │ │ Semantic Intelligence │
-   │  (RapidOCR / ONNX)    │ │   (Local LLM / VLM)   │
+   │        PILAR 1        │ │        PILAR 2        │
+   │ Digitalización Física │ │ Inteligencia Semántica│
+   │  (RapidOCR / ONNX)    │ │   (LLM / VLM Local)   │
    ├───────────────────────┤ ├───────────────────────┤
-   │ • 100% Offline & Fast │ │ • Summaries & Schemas │
-   │ • Pixel-Perfect BBoxes│ │ • Structured JSON     │
-   │ • Sandwich PDF        │ │ • Translation         │
-   │ • DOCX / XLSX / TXT   │ │ • Information Extract │
+   │ • 100% Local y Ágil   │ │ • Resúmenes y esquemas│
+   │ • Coordenadas exactas │ │ • Extracción a JSON   │
+   │ • PDF Sandwich        │ │ • Traducción contextual│
+   │ • DOCX / XLSX / TXT   │ │ • Análisis de datos   │
    └───────────────────────┘ └───────────────────────┘
 ```
 
-1. **Pillar 1: Structural Digitization (RapidOCR / ONNX Runtime)**
-   - Ultra-fast CPU execution (~0.2s per page).
-   - Extracts precise bounding-box coordinates `(x, y, w, h)`.
-   - Generates **Searchable "Sandwich" PDFs**: the original scan remains 100% untouched visually, while an invisible, selectable text layer is placed right beneath each word.
-   - Exports cleanly to `.docx`, `.xlsx`, and `.txt`.
+1. **Pilar 1: Digitalización Estructural (RapidOCR / ONNX Runtime)**
+   - Ejecución ultrarrápida en el procesador (CPU) de tu ordenador (~0,2 segundos por página).
+   - Detección precisa de las cajas delimitadoras de cada palabra `(x, y, ancho, alto)`.
+   - Generación de **PDFs buscables tipo "Sandwich"**: el escaneo original se mantiene 100% intacto a nivel visual (no se mueve ni un solo píxel, firma o logotipo), mientras se superpone una capa de texto invisible exactamente alineada.
+   - Exportación limpia y estructurada a `.docx` (Word), `.xlsx` (Excel) y `.txt`.
 
-2. **Pillar 2: Semantic Intelligence (VLM / Local LLM)**
-   - Connects to local AI runtimes (e.g., Ollama, Llama.cpp, or local VLMs).
-   - Generates summaries, bullet points, and translations.
-   - Extracts structured key-value data (invoices, receipts, legal entities) without sending private data to external servers.
-
----
-
-## ✨ Features
-
-- 🔒 **100% Offline & Private**: Runs entirely on your local machine. No telemetry, no cloud dependencies.
-- 🎯 **Pixel-Perfect PDF**: Your scan's visual appearance is preserved with 100% fidelity. Search (`Ctrl+F`), select, and copy text effortlessly.
-- ⚡ **Lightweight & High Performance**: Powered by ONNX Runtime. No heavy GPU or C++ compilation required.
-- 📂 **Universal Input**: Supports JPG, PNG, TIFF, BMP, WebP, and multi-page PDFs.
-- 📊 **Multi-Format Export**:
-  - `PDF`: Searchable sandwich PDF (default).
-  - `DOCX`: Editable Word document with layout preservation.
-  - `XLSX`: Tabular data exported into native Excel rows and columns.
-  - `TXT`: Clean, reading-order text dump.
-- 🤖 **AI-Ready Extensibility**: Modular hooks to plug in local LLMs for reasoning and summarization.
+2. **Pilar 2: Inteligencia Semántica (VLM / LLM local)**
+   - Integración directa con entornos locales de IA (como Ollama, Llama.cpp o modelos de visión VLM locales).
+   - Generación de resúmenes ejecutivos, esquemas y traducción contextual.
+   - Extracción de datos clave a formato estructurado JSON (facturas, nóminas, contratos, recibos) sin enviar información privada a servidores externos.
 
 ---
 
-## 🚀 Quick Start
+## ✨ Características Principales
 
-### 1. Clone the repository
+- 🔒 **100% Local y Privado**: Se ejecuta íntegramente en tu máquina. Sin telemetría, sin suscripciones y sin enviar datos a la nube.
+- 🎯 **Fidelidad visual absoluta (PDF Sandwich)**: Conserva el aspecto visual original de tu escaneo al milímetro. Busca con `Ctrl + F`, selecciona y copia texto cómodamente.
+- ⚡ **Rápido y ligero**: Motor optimizado mediante ONNX Runtime. No requiere tarjetas gráficas de gama alta ni dependencias complejas.
+- 📂 **Formatos de entrada universales**: Admite imágenes (JPG, PNG, TIFF, BMP, WebP) y ficheros PDF multipágina.
+- 📊 **Múltiples formatos de salida**:
+  - `PDF`: PDF con capa de texto buscable transparente (opción por defecto).
+  - `DOCX`: Documento editable de Microsoft Word respetando párrafos.
+  - `XLSX`: Hojas de cálculo con tablas volcadas a celdas reales de Excel.
+  - `TXT`: Volcado de texto plano ordenado por lectura natural.
+- 🤖 **Extensible con Inteligencia Artificial**: Módulos preparados para conectar modelos de lenguaje locales para razonar sobre el texto extraído.
+
+---
+
+## 🚀 Instalación Rápida
+
+### 1. Clonar el repositorio
 ```bash
 git clone https://github.com/Ydalgo/Open-OCReader.git
 cd Open-OCReader
 ```
 
-### 2. Install dependencies
+### 2. Instalar las dependencias
 ```bash
 pip install -r requirements.txt
 ```
 
-*(Core dependencies: `rapidocr-onnxruntime`, `pypdf`, `reportlab`, `openpyxl`, `python-docx`, `Pillow`, `opencv-python`)*
+*(Dependencias principales: `rapidocr-onnxruntime`, `pypdf`, `reportlab`, `openpyxl`, `python-docx`, `Pillow`, `opencv-python`)*
 
 ---
 
-## 💻 CLI Usage
+## 💻 Uso desde la Terminal (CLI)
 
-Open OCReader provides an intuitive command-line interface:
+Open OCReader ofrece una interfaz de línea de órdenes directa y flexible:
 
-### 1. Default: Convert to Searchable PDF
+### 1. Uso estándar: convertir a PDF buscable
 ```bash
-# Creates 'document_ocr.pdf' preserving 100% of the original visual layout
-python ocr_tool.py document.png
-python ocr_tool.py invoice.pdf
+# Genera 'documento_ocr.pdf' manteniendo el 100% del diseño original intacto
+python ocr_tool.py documento.png
+python ocr_tool.py factura.pdf
 ```
 
-### 2. Specify Output File
+### 2. Indicar un fichero de salida específico
 ```bash
-python ocr_tool.py scan.jpg -o my_searchable_document.pdf
+python ocr_tool.py escaneo.jpg -o mi_documento_buscable.pdf
 ```
 
-### 3. Export to Other Formats
+### 3. Exportar a otros formatos
 ```bash
-# Export recognized tables to Excel
-python ocr_tool.py report_table.png -f xlsx -o report.xlsx
+# Exportar tablas a hoja de cálculo de Excel
+python ocr_tool.py informe_tabla.png -f xlsx -o informe.xlsx
 
-# Export to editable Word document
-python ocr_tool.py contract.pdf -f docx -o contract.docx
+# Exportar a documento editable de Word
+python ocr_tool.py contrato.pdf -f docx -o contrato.docx
 
-# Export to plain text
-python ocr_tool.py notes.jpg -f txt -o notes.txt
+# Volcar a texto plano
+python ocr_tool.py notas.jpg -f txt -o notas.txt
 ```
 
-### 4. (Upcoming) AI Semantic Mode
+### 4. Modo semántico con Inteligencia Artificial (en desarrollo)
 ```bash
-# Extract structured invoice data to JSON using local LLM
-python ocr_tool.py invoice.pdf --ai extract-json -o invoice.json
+# Extraer los datos de una factura en formato estructurado JSON con un modelo local
+python ocr_tool.py factura.pdf --ai extract-json -o factura.json
 
-# Summarize a document
-python ocr_tool.py agreement.pdf --ai summarize
+# Generar un resumen del documento
+python ocr_tool.py acuerdo.pdf --ai summarize
 ```
 
 ---
 
-## 🐍 Python API
+## 🐍 Uso desde Python (API)
 
-You can also use Open OCReader directly inside your own Python projects:
+También puedes integrar Open OCReader como módulo dentro de tus propios scripts y aplicaciones en Python:
 
 ```python
 from open_ocreader import DocumentConverter
 
-# Initialize converter
-converter = DocumentConverter()
+# Inicializar el conversor
+conversor = DocumentConverter()
 
-# Convert image or PDF to a searchable PDF
-result = converter.convert(
-    input_path="scanned_receipt.jpg",
-    output_path="searchable_receipt.pdf",
+# Convertir una imagen o PDF a PDF con texto buscable
+resultado = conversor.convert(
+    input_path="recibo_escaneado.jpg",
+    output_path="recibo_buscable.pdf",
     output_format="pdf"
 )
 
-print(f"Document processed in {result.elapsed_seconds:.2f}s!")
+print(f"Documento procesado con éxito en {resultado.elapsed_seconds:.2f} segundos.")
 ```
 
 ---
 
-## 🗺️ Roadmap
+## 🗺️ Hoja de Ruta (Roadmap)
 
-- [x] Fast ONNX OCR integration (`rapidocr-onnxruntime`)
-- [x] Searchable "Sandwich" PDF builder with exact coordinate mapping
-- [ ] Multi-page PDF batch processing
-- [ ] Grid detection & automated `.xlsx` table generation
-- [ ] Flow-aware `.docx` layout reconstruction
-- [ ] Local AI connector (Ollama / Llama.cpp / Qwen) for summaries & JSON extraction
-- [ ] Modern desktop GUI (CustomTkinter / PyQt)
-
----
-
-## 🤝 Contributing
-
-Contributions are warmly welcome! Whether it is reporting a bug, improving the OCR post-processing, adding a new export format, or enhancing documentation:
-
-1. Fork the Project.
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the Branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
+- [x] Integración del motor rápido de OCR en ONNX (`rapidocr-onnxruntime`)
+- [x] Generador de PDF "Sandwich" con posicionamiento exacto de coordenadas
+- [ ] Procesamiento por lotes y gestión de ficheros PDF multipágina
+- [ ] Detección automática de rejillas para generación avanzada de `.xlsx`
+- [ ] Reconstrucción fluida de párrafos en documentos `.docx`
+- [ ] Conector con IA local (Ollama / Llama.cpp / Qwen) para resúmenes y extracción a JSON
+- [ ] Interfaz gráfica de escritorio nativa (CustomTkinter / PyQt)
 
 ---
 
-## 📄 License
+## 🤝 Cómo Contribuir
 
-Distributed under the **MIT License**. See `LICENSE` for more information.
+¡Las contribuciones de la comunidad son muy bienvenidas! Si quieres proponer mejoras, corregir fallos o añadir nuevos formatos:
+
+1. Haz un Fork del repositorio.
+2. Crea una rama para tu funcionalidad (`git checkout -b feature/NuevaCaracteristica`).
+3. Confirma tus cambios (`git commit -m 'Añadir nueva característica'`).
+4. Sube la rama a tu repositorio (`git push origin feature/NuevaCaracteristica`).
+5. Abre una Pull Request.
+
+---
+
+## 📄 Licencia y Autoría
+
+Este proyecto se distribuye bajo la licencia de código abierto **MIT**.
+
+* **Autores:**
+  * **Ydalgo** (Creador y mantenedor del proyecto)
+  * **Antigravity** (Google DeepMind - Asistente de arquitectura, diseño y desarrollo)
+
+Consulta el fichero `LICENSE` para conocer todos los detalles legales.
 
 ---
 
 <p align="center">
-  Built with ❤️ for privacy, open source, and offline-first software.
+  Desarrollado con ❤️ para impulsar la privacidad, el software libre y las herramientas 100% locales.
 </p>
