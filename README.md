@@ -4,7 +4,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey)]()
 [![100% Offline](https://img.shields.io/badge/Privacy-100%25%20Offline-success)]()
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Ydalgo/Open-OCReade/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Ydalgo/Open-OCReader/pulls)
 
 **Open OCReader** is an open-source, lightweight, and 100% offline document digitization and semantic analysis suite.
 
@@ -67,8 +67,8 @@ Most OCR tools either alter your document layout or depend on heavy, slow cloud 
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/Ydalgo/Open-OCReade.git
-cd Open-OCReade
+git clone https://github.com/Ydalgo/Open-OCReader.git
+cd Open-OCReader
 ```
 
 ### 2. Install dependencies
