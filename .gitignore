@@ -48,4 +48,6 @@ test_output/
 # Modelos de IA y binarios portables (se descargan automáticamente)
 models/
 bin/
+logs/
+*.log
 *.gguf

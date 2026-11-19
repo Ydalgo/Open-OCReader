@@ -20,6 +20,9 @@ from .converter import DocumentConverter
 from .document_loader import DocumentLoader
 from .engine import OCREngine
 from .formats.docx_builder import _group_boxes_into_lines
+from .logger import get_logger, get_logs_dir
+
+logger = get_logger("gui")
 
 # Soporte nativo de Drag & Drop en Windows
 try:
@@ -84,7 +87,11 @@ class OpenOCReaderGUI:
         header_frame = ttk.Frame(main_frame)
         header_frame.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Label(header_frame, text="Open OCReader 📄🔍🧠", font=("Segoe UI", 16, "bold")).pack(anchor="w")
+        title_row = ttk.Frame(header_frame)
+        title_row.pack(fill=tk.X)
+        ttk.Label(title_row, text="Open OCReader 📄🔍🧠", font=("Segoe UI", 16, "bold")).pack(side=tk.LEFT)
+        ttk.Button(title_row, text="📋 Ver Logs", command=self._open_logs).pack(side=tk.RIGHT)
+
         ttk.Label(
             header_frame,
             text="Conversión fiel a PDF/Word/Excel + IA Local (Qwen3-VL) para manuscritos, traducción y anonimización.",
@@ -426,11 +433,14 @@ class OpenOCReaderGUI:
 
     def _run_conversion_worker(self, in_path: str, out_path: str, fmt: str):
         try:
+            logger.info(f"Iniciando conversión GUI: {in_path} -> {out_path} ({fmt})")
             start_t = time.perf_counter()
             result = DocumentConverter().convert(in_path, out_path, fmt, verbose=False)
             elapsed = time.perf_counter() - start_t
+            logger.info(f"Conversión completada en {elapsed:.2f}s ({result.total_elements} elementos).")
             self.root.after(0, self._on_conversion_success, result, elapsed)
         except Exception as e:
+            logger.exception(f"Error en conversión GUI para '{in_path}': {e}")
             self.root.after(0, self._on_conversion_error, str(e))
 
     def _on_conversion_success(self, result, elapsed: float):
@@ -531,6 +541,7 @@ class OpenOCReaderGUI:
 
             self.root.after(0, self._on_ai_success, output_text)
         except Exception as e:
+            logger.exception(f"Error en acción IA '{action}' para '{in_path}': {e}")
             self.root.after(0, self._on_ai_error, str(e))
 
     def _on_ai_success(self, result_text: str):
@@ -575,6 +586,14 @@ class OpenOCReaderGUI:
     def _open_folder(self):
         if self.last_generated_file:
             self._open_path_crossplatform(str(Path(self.last_generated_file).parent))
+
+    def _open_logs(self):
+        logs_dir = get_logs_dir()
+        log_file = logs_dir / "open_ocreader.log"
+        if log_file.exists():
+            self._open_path_crossplatform(str(log_file))
+        else:
+            self._open_path_crossplatform(str(logs_dir))
 
     @staticmethod
     def _open_path_crossplatform(path: str):

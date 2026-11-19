@@ -20,6 +20,9 @@ from typing import Any, Callable, Dict, List, Optional
 import requests
 from huggingface_hub import hf_hub_download
 from PIL import Image
+from ..logger import get_logger, get_logs_dir
+
+logger = get_logger("ai.runtime")
 
 
 class LlamaRuntimeManager:
@@ -34,8 +37,11 @@ class LlamaRuntimeManager:
 
     def __init__(self, base_dir: Optional[Path] = None):
         if base_dir is None:
-            # Raíz del proyecto (dos niveles arriba de open_ocreader/ai)
-            self.base_dir = Path(__file__).resolve().parent.parent.parent
+            if getattr(sys, "frozen", False):
+                # Cuando se ejecuta como .exe compilado, usar la carpeta del ejecutable
+                self.base_dir = Path(sys.executable).resolve().parent
+            else:
+                self.base_dir = Path(__file__).resolve().parent.parent.parent
         else:
             self.base_dir = Path(base_dir)
 
@@ -45,9 +51,11 @@ class LlamaRuntimeManager:
         self.bin_dir = self.bin_root / self.platform_key
 
         self.server_process: Optional[subprocess.Popen] = None
+        self.server_log_file = None
         self.port = 8089
         self.server_with_vision = False
 
+        logger.info(f"LlamaRuntimeManager inicializado. Base dir: {self.base_dir}, Plataforma: {self.platform_key}")
         atexit.register(self.stop_server)
 
     @classmethod
@@ -243,7 +251,6 @@ class LlamaRuntimeManager:
             str(n_ctx),
             "-t",
             str(cpu_threads),
-            "--log-disable",
         ]
 
         if with_vision:
@@ -252,28 +259,37 @@ class LlamaRuntimeManager:
         if progress_cb:
             progress_cb("Iniciando motor local Qwen3-VL en memoria...")
 
+        logger.info(f"Iniciando llama-server (vision={with_vision}): {' '.join(cmd)}")
+
         creationflags = 0
         if sys.platform == "win32":
             creationflags = subprocess.CREATE_NO_WINDOW
 
+        llama_log_path = get_logs_dir() / "llama_server.log"
+        self.server_log_file = open(llama_log_path, "a", encoding="utf-8", errors="replace")
+
         self.server_process = subprocess.Popen(
             cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self.server_log_file,
+            stderr=subprocess.STDOUT,
             creationflags=creationflags,
         )
         self.server_with_vision = with_vision
 
         # Esperar hasta que /health responda
         health_url = f"http://127.0.0.1:{self.port}/health"
-        deadline = time.time() + 90.0
+        deadline = time.time() + 120.0
 
         while time.time() < deadline:
-            if self.server_process.poll() is not None:
-                raise RuntimeError("El proceso de llama-server se cerró inesperadamente al iniciar.")
+            ret_code = self.server_process.poll()
+            if ret_code is not None:
+                err_msg = f"El proceso de llama-server se cerró inesperadamente (código {ret_code}). Revisa {llama_log_path}"
+                logger.error(err_msg)
+                raise RuntimeError(err_msg)
             try:
                 r = requests.get(health_url, timeout=1.5)
                 if r.status_code == 200:
+                    logger.info(f"llama-server operativo en puerto {self.port} (PID {self.server_process.pid}).")
                     if progress_cb:
                         progress_cb("✓ Motor IA local listo.")
                     return
@@ -281,12 +297,14 @@ class LlamaRuntimeManager:
                 pass
             time.sleep(0.5)
 
+        logger.error("Timeout esperando a que llama-server responda en /health.")
         self.stop_server()
-        raise TimeoutError("Tiempo de espera agotado al inicializar llama-server.")
+        raise TimeoutError(f"Tiempo de espera agotado al inicializar llama-server. Revisa {llama_log_path}")
 
     def stop_server(self) -> None:
         """Detiene el proceso del servidor local y libera la memoria."""
         if self.server_process is not None:
+            logger.info(f"Deteniendo llama-server (PID {self.server_process.pid})...")
             try:
                 self.server_process.terminate()
                 self.server_process.wait(timeout=5)
@@ -297,6 +315,12 @@ class LlamaRuntimeManager:
                     pass
             finally:
                 self.server_process = None
+        if self.server_log_file is not None:
+            try:
+                self.server_log_file.close()
+            except Exception:
+                pass
+            self.server_log_file = None
 
     def chat_completion(
         self,
