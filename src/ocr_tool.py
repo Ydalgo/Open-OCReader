@@ -100,9 +100,34 @@ def main():
         help="Pregunta a responder cuando se usa '--ai ask'.",
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="Modo silencioso.")
+    parser.add_argument("--clear-logs", action="store_true", help="Limpia todos los archivos de log.")
+    parser.add_argument("--clear-cache", action="store_true", help="Limpia cachés y archivos temporales.")
+    parser.add_argument("--check-update", action="store_true", help="Comprueba si hay una nueva versión en GitHub.")
+    parser.add_argument("--update", action="store_true", help="Actualiza el proyecto desde GitHub sin desinstalar.")
     parser.add_argument("-v", "--version", action="version", version=f"Open OCReader v{__version__}")
 
     args = parser.parse_args()
+
+    # Comandos de mantenimiento y actualización rápida
+    if args.clear_logs:
+        from open_ocreader.maintenance import clear_logs
+        res = clear_logs()
+        print(f"[Open OCReader] Logs limpiados (truncados: {res['truncated']}, eliminados: {res['removed']}).")
+        sys.exit(0)
+
+    if args.clear_cache:
+        from open_ocreader.maintenance import clear_cache
+        res = clear_cache()
+        print(f"[Open OCReader] Caché limpiada ({res['deleted']} elementos eliminados).")
+        sys.exit(0)
+
+    if args.check_update or args.update:
+        from open_ocreader.updater import check_for_updates, apply_update
+        info = check_for_updates(__version__)
+        print(f"[Open OCReader] {info.message}")
+        if args.update and info.update_available:
+            print(apply_update())
+        sys.exit(0)
 
     if not args.input_file or args.gui:
         hide_console_window()

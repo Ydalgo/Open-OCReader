@@ -19,3 +19,8 @@ rich>=13.0.0
 # AI & Portable Runtime (Phase 2)
 requests>=2.31.0
 huggingface-hub>=0.20.0
+
+# REST API Server Mode
+fastapi>=0.110.0
+uvicorn>=0.27.0
+python-multipart>=0.0.9

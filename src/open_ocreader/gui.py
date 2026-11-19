@@ -91,7 +91,13 @@ class OpenOCReaderGUI:
         title_row = ttk.Frame(header_frame)
         title_row.pack(fill=tk.X)
         ttk.Label(title_row, text="Open OCReader 📄🔍🧠", font=("Segoe UI", 16, "bold")).pack(side=tk.LEFT)
-        ttk.Button(title_row, text="📋 Ver Logs", command=self._open_logs).pack(side=tk.RIGHT)
+
+        tools_row = ttk.Frame(title_row)
+        tools_row.pack(side=tk.RIGHT)
+        ttk.Button(tools_row, text="🔄 Actualizar", command=self._check_updates_gui).pack(side=tk.LEFT, padx=2)
+        ttk.Button(tools_row, text="🧹 Caché", command=self._clear_cache_gui).pack(side=tk.LEFT, padx=2)
+        ttk.Button(tools_row, text="🗑️ Logs", command=self._clear_logs_gui).pack(side=tk.LEFT, padx=2)
+        ttk.Button(tools_row, text="📋 Ver Logs", command=self._open_logs).pack(side=tk.LEFT, padx=(2, 0))
 
         ttk.Label(
             header_frame,
@@ -705,6 +711,51 @@ class OpenOCReaderGUI:
             self._open_path_crossplatform(str(log_file))
         else:
             self._open_path_crossplatform(str(logs_dir))
+
+    def _clear_cache_gui(self):
+        from .maintenance import clear_cache
+        self.cached_doc_text = None
+        self.cached_doc_key = None
+        res = clear_cache()
+        self.status_var.set(f"✓ Caché limpiada ({res['deleted']} elementos eliminados).")
+        messagebox.showinfo("Caché limpiada", f"Se han eliminado {res['deleted']} elementos temporales y de caché.")
+
+    def _clear_logs_gui(self):
+        if not messagebox.askyesno("Borrar Logs", "¿Deseas vaciar todos los archivos de registro (logs)?"):
+            return
+        from .maintenance import clear_logs
+        res = clear_logs()
+        self.status_var.set("✓ Logs limpiados correctamente.")
+        messagebox.showinfo(
+            "Logs limpiados",
+            f"Logs truncados: {res['truncated']} | Copias antiguas eliminadas: {res['removed']}",
+        )
+
+    def _check_updates_gui(self):
+        from . import __version__
+        from .updater import check_for_updates, apply_update
+
+        self.status_var.set("Consultando actualizaciones en GitHub...")
+
+        def worker():
+            info = check_for_updates(__version__)
+            def on_result():
+                self.status_var.set(info.message)
+                if info.update_available:
+                    if messagebox.askyesno(
+                        "Actualización disponible",
+                        f"{info.message}\n\n¿Deseas descargar y aplicar la actualización ahora sin perder tus modelos?",
+                    ):
+                        try:
+                            msg = apply_update()
+                            messagebox.showinfo("Actualizado", f"{msg}\n\nReinicia la aplicación para aplicar los cambios.")
+                        except Exception as e:
+                            messagebox.showerror("Error al actualizar", str(e))
+                else:
+                    messagebox.showinfo("Actualizaciones", info.message)
+            self.root.after(0, on_result)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     @staticmethod
     def _open_path_crossplatform(path: str):

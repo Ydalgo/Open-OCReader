@@ -1,0 +1,14 @@
+[Unit]
+Description=Open OCReader API Server (OCR & Local AI)
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__EXEC_CMD__ --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
