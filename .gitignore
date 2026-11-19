@@ -51,3 +51,14 @@ bin/
 logs/
 *.log
 *.gguf
+
+# Secretos y credenciales (NUNCA versionar)
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+*.secret
+*credentials*
+*token*

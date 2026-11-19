@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import List, Generator
 from PIL import Image, ImageSequence
 import pypdfium2 as pdfium
+from .security import MAX_IMAGE_PIXELS, MAX_PDF_PAGES, SecurityError, validate_input_file
+
+# Protección frente a bombas de descompresión de imágenes (DecompressionBomb)
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
 @dataclass
@@ -43,6 +47,9 @@ class DocumentLoader:
         if not path.exists():
             raise FileNotFoundError(f"No se ha encontrado el fichero: {file_path}")
 
+        # Validación de seguridad: extensión, tamaño y firma mágica
+        validate_input_file(path)
+
         ext = path.suffix.lower()
         if ext == ".pdf":
             return cls._load_pdf(path, render_scale)
@@ -64,7 +71,12 @@ class DocumentLoader:
         pdf = pdfium.PdfDocument(str(path))
 
         try:
-            for idx in range(len(pdf)):
+            total_pages = len(pdf)
+            if total_pages > MAX_PDF_PAGES:
+                raise SecurityError(
+                    f"El PDF tiene {total_pages} páginas y supera el límite seguro de {MAX_PDF_PAGES} páginas."
+                )
+            for idx in range(total_pages):
                 page = pdf[idx]
                 # Dimensiones originales en puntos PDF (1/72 de pulgada)
                 w_pt, h_pt = page.get_size()

@@ -8,6 +8,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from ..document_loader import PageData
 from ..engine import OCRBox
+from ..security import sanitize_spreadsheet_text
 
 
 def build_excel(
@@ -51,10 +52,10 @@ def build_excel(
                 box_text = box.text.strip()
                 parsed_val = _try_parse_number(box_text)
 
-                if current_val:
-                    cell.value = f"{current_val} {parsed_val}"
+                if current_val is not None:
+                    cell.value = sanitize_spreadsheet_text(f"{current_val} {parsed_val}")
                 else:
-                    cell.value = parsed_val
+                    cell.value = sanitize_spreadsheet_text(parsed_val) if isinstance(parsed_val, str) else parsed_val
 
                 # Formatear la primera fila como cabecera si tiene aspecto de tabla
                 if r_idx == 1:

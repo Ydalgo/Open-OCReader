@@ -6,6 +6,7 @@ Permite actualizar el código sin desinstalar ni perder los modelos (models/) o 
 import io
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import zipfile
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import requests
 from .logger import get_logger
+from .security import SecurityError, is_within_directory
 
 logger = get_logger("updater")
 
@@ -117,6 +119,9 @@ def apply_update() -> str:
         for member in zf.infolist():
             if member.is_dir():
                 continue
+            mode = (member.external_attr >> 16) & 0xFFFF
+            if stat.S_ISLNK(mode):
+                raise SecurityError(f"Enlace simbólico bloqueado en paquete de actualización: {member.filename}")
             rel_path = member.filename[len(top_folder) + 1 :]
             if not rel_path:
                 continue
@@ -125,6 +130,8 @@ def apply_update() -> str:
                 continue
 
             dest = root / rel_path
+            if not is_within_directory(root, dest):
+                raise SecurityError(f"Ruta peligrosa detectada en actualización (Zip-Slip): {member.filename}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(member) as src_f, open(dest, "wb") as dst_f:
                 shutil.copyfileobj(src_f, dst_f)

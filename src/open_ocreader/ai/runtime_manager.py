@@ -21,6 +21,14 @@ import requests
 from huggingface_hub import hf_hub_download
 from PIL import Image
 from ..logger import get_logger, get_logs_dir
+from ..security import (
+    SecurityError,
+    generate_token,
+    safe_extract_tar,
+    safe_extract_zip,
+    verify_sha256,
+    write_private_secret_file,
+)
 from .hardware import (
     HardwareProfile,
     find_free_port,
@@ -39,6 +47,13 @@ class LlamaRuntimeManager:
     HF_REPO_ID = "Qwen/Qwen3-VL-4B-Instruct-GGUF"
     MODEL_FILENAME = "Qwen3VL-4B-Instruct-Q4_K_M.gguf"
     MMPROJ_FILENAME = "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"
+
+    # Hashes SHA-256 de referencia de los modelos oficiales (Qwen/Qwen3-VL-4B-Instruct-GGUF).
+    # Cualquier descarga (Hugging Face o GitHub) que no coincida se rechaza y se elimina.
+    MODEL_SHA256 = {
+        "Qwen3VL-4B-Instruct-Q4_K_M.gguf": "66358cb18bb6b3b1b6675aa412c7a88ef01d228f481184d13668e5201c730a0a",
+        "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf": "30ba2c7dd3127a4561b6cba9d13d0f711c91bdb38742e2f56d73c8cb596bd06d",
+    }
 
     _instance: Optional["LlamaRuntimeManager"] = None
 
@@ -66,6 +81,9 @@ class LlamaRuntimeManager:
 
         self.server_process: Optional[subprocess.Popen] = None
         self.server_log_file = None
+        self._api_key_file: Optional[Path] = None
+        # Clave aleatoria por sesión: ninguna web ni proceso ajeno puede usar el LLM local
+        self._server_api_key = generate_token()
         self.port = 8089
         self.preferred_model_source = "official"  # 'official' | 'github'
 
@@ -126,6 +144,7 @@ class LlamaRuntimeManager:
         selected_source = source or self.preferred_model_source
         asset_url = None
         asset_name = None
+        asset_digest = None
         tag_name = None
 
         # 1. Intentar desde el proyecto GitHub si el usuario lo eligió
@@ -140,6 +159,7 @@ class LlamaRuntimeManager:
                         if f"-bin-{target_key}." in asset["name"]:
                             asset_url = asset["browser_download_url"]
                             asset_name = asset["name"]
+                            asset_digest = asset.get("digest")
                             tag_name = rel.get("tag_name")
                             break
             except Exception as e:
@@ -159,6 +179,7 @@ class LlamaRuntimeManager:
                     if f"-bin-{target_key}." in name:
                         asset_url = asset["browser_download_url"]
                         asset_name = name
+                        asset_digest = asset.get("digest")
                         tag_name = rel.get("tag_name")
                         break
                 if asset_url:
@@ -177,8 +198,15 @@ class LlamaRuntimeManager:
 
         self._download_file_stream(asset_url, archive_path, progress_cb=progress_cb, label=asset_name)
 
+        # Verificar integridad criptográfica SHA-256 si GitHub publicó el digest
+        if asset_digest:
+            if progress_cb:
+                progress_cb("Verificando firma SHA-256 del paquete descargado...")
+            verify_sha256(archive_path, asset_digest)
+            logger.info(f"Integridad SHA-256 verificada para {asset_name}.")
+
         if progress_cb:
-            progress_cb("Extrayendo binarios portables...")
+            progress_cb("Extrayendo binarios portables de forma segura...")
 
         extract_tmp = self.bin_dir / "_tmp_extract"
         if extract_tmp.exists():
@@ -186,11 +214,9 @@ class LlamaRuntimeManager:
         extract_tmp.mkdir(parents=True, exist_ok=True)
 
         if asset_name.endswith(".zip"):
-            with zipfile.ZipFile(archive_path, "r") as zf:
-                zf.extractall(extract_tmp)
+            safe_extract_zip(archive_path, extract_tmp)
         elif asset_name.endswith(".tar.gz"):
-            with tarfile.open(archive_path, "r:gz") as tf:
-                tf.extractall(extract_tmp)
+            safe_extract_tar(archive_path, extract_tmp)
 
         target_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
         found_dir = None
@@ -243,6 +269,13 @@ class LlamaRuntimeManager:
             self._download_models_from_github(progress_cb=progress_cb)
         else:
             self._download_models_from_huggingface(progress_cb=progress_cb)
+
+        # Verificar integridad SHA-256 de ambos ficheros del modelo
+        if progress_cb:
+            progress_cb("Verificando integridad criptográfica SHA-256 de los modelos...")
+        verify_sha256(self.model_path, self.MODEL_SHA256.get(self.MODEL_FILENAME))
+        verify_sha256(self.mmproj_path, self.MODEL_SHA256.get(self.MMPROJ_FILENAME))
+        logger.info("Integridad SHA-256 verificada para Qwen3-VL y mmproj.")
 
         if progress_cb:
             progress_cb("✓ Modelo Qwen3-VL-4B-Instruct listo para usar offline.")
@@ -298,6 +331,8 @@ class LlamaRuntimeManager:
         progress_cb: Optional[Callable[[str], None]] = None,
         label: str = "",
     ):
+        if not url.lower().startswith("https://"):
+            raise SecurityError(f"Descarga bloqueada: solo se permiten URLs HTTPS ({url}).")
         tmp_path = dest_path.with_suffix(dest_path.suffix + ".part")
         with requests.get(url, stream=True, timeout=60) as r:
             r.raise_for_status()
@@ -355,6 +390,15 @@ class LlamaRuntimeManager:
             cmd.extend(["--cache-reuse", "256"])
         if "--image-min-tokens" in help_txt:
             cmd.extend(["--image-min-tokens", "1024"])
+
+        # Seguridad: exigir clave de sesión por fichero privado (no visible en línea de comandos)
+        if "--api-key-file" in help_txt:
+            self._api_key_file = write_private_secret_file(self._server_api_key, prefix="llama_key_")
+            cmd.extend(["--api-key-file", str(self._api_key_file)])
+        if "--cors-origins" in help_txt:
+            cmd.extend(["--cors-origins", "http://127.0.0.1"])
+        if "--no-cors-credentials" in help_txt:
+            cmd.append("--no-cors-credentials")
 
         return cmd
 
@@ -456,6 +500,12 @@ class LlamaRuntimeManager:
             except Exception:
                 pass
             self.server_log_file = None
+        if self._api_key_file is not None:
+            try:
+                self._api_key_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+            self._api_key_file = None
 
     def chat_completion(
         self,
@@ -468,6 +518,7 @@ class LlamaRuntimeManager:
         self.start_server(progress_cb=progress_cb)
 
         url = f"http://127.0.0.1:{self.port}/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {self._server_api_key}"}
         payload = {
             "model": "qwen3-vl-4b",
             "messages": messages,
@@ -475,7 +526,7 @@ class LlamaRuntimeManager:
             "temperature": temperature,
         }
 
-        resp = requests.post(url, json=payload, timeout=180)
+        resp = requests.post(url, json=payload, headers=headers, timeout=180)
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"].strip()

@@ -6,9 +6,17 @@ After=network.target
 Type=simple
 User=__USER__
 WorkingDirectory=__PROJECT_DIR__
-ExecStart=__EXEC_CMD__ --host 0.0.0.0 --port 8000
+# Recomendado: configurar clave API en un fichero privado EnvironmentFile=/etc/open-ocreader.env
+ExecStart=__EXEC_CMD__ --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=5
+
+# Endurecimiento systemd (principio de mínimo privilegio)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=__PROJECT_DIR__/logs __PROJECT_DIR__/models __PROJECT_DIR__/bin
 
 [Install]
 WantedBy=multi-user.target
