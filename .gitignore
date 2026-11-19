@@ -37,6 +37,9 @@ ENV/
 *.swo
 
 # Output test files
-*_ocr.pdf
-*.output.*
+*_ocr.*
+*resultado*
+test_sample/*_ocr.*
+test_sample/documento_2paginas.pdf
+test_sample/resultado_*.pdf
 test_output/
