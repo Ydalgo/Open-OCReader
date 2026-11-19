@@ -27,8 +27,11 @@ def main():
         prog="ocr_server",
         description="Open OCReader API Server endurecido (FastAPI + Uvicorn + TLS 1.3)",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Dirección de escucha (por defecto: 127.0.0.1).")
-    parser.add_argument("--port", type=int, default=8000, help="Puerto HTTP/HTTPS (por defecto: 8000).")
+    default_host = os.environ.get("OPEN_OCREADER_HOST", "127.0.0.1")
+    default_port = int(os.environ.get("OPEN_OCREADER_PORT", "8000"))
+
+    parser.add_argument("--host", default=default_host, help=f"Dirección de escucha (por defecto: {default_host}).")
+    parser.add_argument("--port", type=int, default=default_port, help=f"Puerto HTTP/HTTPS (por defecto: {default_port}).")
     parser.add_argument("--api-key", default=None, help="Clave API (o variable OPEN_OCREADER_API_KEY).")
     parser.add_argument("--ssl-certfile", default=None, help="Ruta al certificado TLS (.pem/.crt) para HTTPS.")
     parser.add_argument("--ssl-keyfile", default=None, help="Ruta a la clave privada TLS (.pem/.key) para HTTPS.")

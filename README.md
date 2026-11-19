@@ -115,7 +115,7 @@ chmod +x scripts/linux/*.sh
 
 ## 🌐 Modo Servidor API REST (para clientes web)
 
-> 🧸 **¿Primera vez montando un servidor?** Lee nuestra guía paso a paso súper sencilla: **[docs/TUTORIAL_SERVIDOR_FACIL.md](docs/TUTORIAL_SERVIDOR_FACIL.md)**.
+> 📖 Consulta la guía completa paso a paso de puesta en marcha, puertos configurables, TLS 1.3 y variables SIEM en **[docs/GUIA_DESPLIEGUE_SERVIDOR.md](docs/GUIA_DESPLIEGUE_SERVIDOR.md)**.
 
 ```bash
 # Arrancar servidor en localhost (Swagger UI en http://127.0.0.1:8000/docs)

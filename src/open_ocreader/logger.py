@@ -39,7 +39,9 @@ class JsonSiemFormatter(logging.Formatter):
 
 
 def ensure_standard_streams():
-    """Evita AttributeError en modo --windowed / pythonw.exe donde stdout/stderr son None."""
+    """Evita AttributeError en modo --windowed / pythonw.exe y desactiva telemetría de terceros."""
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    os.environ.setdefault("DO_NOT_TRACK", "1")
     if sys.stdout is None:
         sys.stdout = open(os.devnull, "w", encoding="utf-8")
     if sys.stderr is None:
