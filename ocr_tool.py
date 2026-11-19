@@ -16,6 +16,18 @@ from pathlib import Path
 from open_ocreader import DocumentConverter, launch_gui, __version__
 
 
+def hide_console_window():
+    """Oculta la ventana de terminal cmd en Windows cuando se activa el modo gráfico."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # 0 = SW_HIDE
+        except Exception:
+            pass
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="ocr_tool",
@@ -75,6 +87,7 @@ def main():
 
     # Si no se especificó fichero de entrada o se solicitó explícitamente --gui, abrir la interfaz visual
     if not args.input_file or args.gui:
+        hide_console_window()
         launch_gui()
         sys.exit(0)
 
