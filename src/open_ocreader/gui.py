@@ -56,6 +56,8 @@ class OpenOCReaderGUI:
         self.root.title("Open OCReader - Digitalización e IA Documental 100% Local")
         self.root.geometry("760x740")
         self.root.minsize(680, 660)
+        self._window_icon_ref = None
+        self._apply_window_icon()
 
         self.style = ttk.Style()
         try:
@@ -79,6 +81,35 @@ class OpenOCReaderGUI:
         self._setup_drag_and_drop()
         self._setup_clipboard_paste()
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+    def _apply_window_icon(self):
+        """Aplica el icono de Open OCReader (.ico en Windows, .png en Linux/macOS)."""
+        candidates = []
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            candidates.append(exe_dir / "ico")
+            candidates.append(exe_dir / "_internal" / "ico")
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass:
+                candidates.append(Path(meipass) / "ico")
+        else:
+            candidates.append(Path(__file__).resolve().parent.parent.parent / "ico")
+
+        ico_dir = next((d for d in candidates if d.exists()), None)
+        if not ico_dir:
+            return
+
+        ico_file = ico_dir / "Open_OCReader.ico"
+        png_file = ico_dir / "Open_OCReader.png"
+
+        try:
+            if sys.platform == "win32" and ico_file.exists():
+                self.root.iconbitmap(str(ico_file))
+            elif png_file.exists():
+                self._window_icon_ref = tk.PhotoImage(file=str(png_file))
+                self.root.iconphoto(True, self._window_icon_ref)
+        except Exception as e:
+            logger.warning(f"No se pudo cargar el icono de ventana: {e}")
 
     def _build_ui(self):
         main_frame = ttk.Frame(self.root, padding="14 12 14 12")

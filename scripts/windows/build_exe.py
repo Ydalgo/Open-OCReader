@@ -49,11 +49,18 @@ def build_with_nuitka(base_dir: Path, src_dir: Path, target: str, onefile: bool)
     if onefile:
         cmd.append("--onefile")
 
+    ico_dir = base_dir / "ico"
+    ico_file = ico_dir / "Open_OCReader.ico"
+
     if target == "gui":
         cmd.extend([
             "--windows-console-mode=disable",
             "--enable-plugin=tk-inter",
         ])
+        if ico_file.exists():
+            cmd.append(f"--windows-icon-from-ico={ico_file}")
+        if ico_dir.exists():
+            cmd.append(f"--include-data-dir={ico_dir}=ico")
     else:
         cmd.extend([
             "--windows-console-mode=force",
@@ -118,8 +125,15 @@ def build_with_pyinstaller(base_dir: Path, src_dir: Path, target: str, onefile: 
         "--exclude-module=pandas",
     ]
 
+    ico_dir = base_dir / "ico"
+    ico_file = ico_dir / "Open_OCReader.ico"
+
     if target == "gui":
         cmd.extend(["--windowed", "--hidden-import=windnd", "--hidden-import=win32clipboard"])
+        if ico_file.exists():
+            cmd.append(f"--icon={ico_file}")
+        if ico_dir.exists():
+            cmd.append(f"--add-data={ico_dir};ico")
     else:
         cmd.extend(["--console", "--hidden-import=uvicorn", "--hidden-import=fastapi"])
 

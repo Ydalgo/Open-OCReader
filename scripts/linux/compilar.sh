@@ -16,6 +16,7 @@ pip install pyinstaller
 pyinstaller --noconfirm --clean --windowed \
     --paths="src" \
     --name="Open_OCReader" \
+    --add-data="ico:ico" \
     --collect-all="rapidocr_onnxruntime" \
     --collect-all="pypdfium2" \
     --hidden-import="PIL" \
