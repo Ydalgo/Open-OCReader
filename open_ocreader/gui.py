@@ -492,7 +492,7 @@ class OpenOCReaderGUI:
         self.ai_progress.start(10)
         self.ai_status_var.set("Preparando análisis con IA local...")
 
-        use_handwriting = self.handwriting_var.get() or action == "transcribe"
+        use_handwriting = self.handwriting_var.get()
         threading.Thread(
             target=self._ai_worker,
             args=(in_path, action, question, use_handwriting),
@@ -515,22 +515,23 @@ class OpenOCReaderGUI:
             runtime = LlamaRuntimeManager.get_instance()
             cache_key = (in_path, use_handwriting)
 
-            # Extraer texto (o usar caché si ya se extrajo para este fichero y modo)
+            # Paso 1: Extraer texto completo con la parte básica de Python (RapidOCR) o caché
             if self.cached_doc_key == cache_key and self.cached_doc_text is not None:
                 doc_text = self.cached_doc_text
             else:
-                update_status("Extrayendo texto del documento...")
+                update_status("Paso 1: Extrayendo todo el texto con el motor base (RapidOCR)...")
                 pages = DocumentLoader.load_pages(in_path)
                 texts = []
 
                 if use_handwriting:
                     hw_engine = HandwritingOCREngine(runtime)
                     for p in pages:
-                        update_status(f"Leyendo página {p.page_number}/{len(pages)} con Qwen3-VL (Visión)...")
+                        update_status(f"Leyendo manuscrito página {p.page_number}/{len(pages)} con Qwen3-VL (Visión)...")
                         texts.append(hw_engine.transcribe_image(p.image, progress_cb=update_status))
                 else:
                     ocr = OCREngine.get_instance()
                     for p in pages:
+                        update_status(f"Ejecutando OCR base en página {p.page_number}/{len(pages)}...")
                         boxes = ocr.process_image(p.image)
                         lines = _group_boxes_into_lines(boxes)
                         texts.append("\n".join(" ".join(b.text for b in line) for line in lines))
@@ -538,6 +539,7 @@ class OpenOCReaderGUI:
                 doc_text = "\n\n".join(texts).strip()
                 self.cached_doc_text = doc_text
                 self.cached_doc_key = cache_key
+                logger.info(f"OCR completado ({len(doc_text)} caracteres extraídos, manuscrito={use_handwriting}).")
 
             if action == "transcribe":
                 output_text = doc_text
