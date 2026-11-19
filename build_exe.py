@@ -42,6 +42,9 @@ def build():
         "--hidden-import=openpyxl",
         "--hidden-import=windnd",
         "--hidden-import=win32clipboard",
+        "--hidden-import=requests",
+        "--hidden-import=huggingface_hub",
+        "--hidden-import=open_ocreader.ai",
         # Excluir paquetes pesados de Anaconda no requeridos por Open OCReader
         "--exclude-module=torch",
         "--exclude-module=torchvision",
