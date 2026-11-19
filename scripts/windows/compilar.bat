@@ -1,5 +1,6 @@
 @echo off
-title Compilando Open OCReader
+title Compilando Open OCReader (Windows)
+cd /d "%~dp0..\.."
 echo ================================================================
 echo   Compilador de Open OCReader a archivo ejecutable (.exe)
 echo ================================================================
@@ -24,7 +25,7 @@ if "%PYTHON_EXE%"=="" (
 
 echo Usando Python: %PYTHON_EXE%
 echo.
-"%PYTHON_EXE%" build_exe.py %*
+"%PYTHON_EXE%" scripts\windows\build_exe.py %*
 
 echo.
 echo Presiona cualquier tecla para cerrar esta ventana...

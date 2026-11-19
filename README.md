@@ -1,4 +1,4 @@
-# Open OCReader 📄🔍⚡
+# Open OCReader 📄🔍🧠
 
 [![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Versión de Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
@@ -6,191 +6,112 @@
 [![100% Offline](https://img.shields.io/badge/Privacidad-100%25%20Offline-success)]()
 [![Contribuciones bienvenidas](https://img.shields.io/badge/PRs-bienvenidas-brightgreen.svg)](https://github.com/Ydalgo/Open-OCReader/pulls)
 
-**Open OCReader** es una suite de código abierto, ligera y **100% local (offline)** para la digitalización de documentos y el análisis semántico con inteligencia artificial.
-
-Concebida como una alternativa ágil, privada y libre a soluciones comerciales privativas como ABBYY FineReader, **Open OCReader** une dos mundos complementarios: la **conversión fiel de documentos** (PDF sandwich buscable, DOCX, XLSX) y la **comprensión documental inteligente** (modelos de visión y lenguaje VLM / LLM).
+**Open OCReader** es una suite de código abierto, ligera y **100% local (offline)** para la digitalización fiel de documentos y su análisis semántico mediante Inteligencia Artificial.
 
 ---
 
-## 🌟 Visión: Arquitectura en Dos Pilares
+## 📁 Estructura del Proyecto
 
-La mayoría de herramientas OCR distorsionan el diseño del documento o dependen de servicios pesados en la nube. **Open OCReader** desacopla el proceso en dos capas especializadas:
-
-```
-┌────────────────────────────────────────────────────────┐
-│           Entrada: Imagen escaneada o PDF              │
-└───────────────────────────┬────────────────────────────┘
-                            │
-               ┌────────────┴────────────┐
-               ▼                         ▼
-   ┌───────────────────────┐ ┌───────────────────────┐
-   │        PILAR 1        │ │        PILAR 2        │
-   │ Digitalización Física │ │ Inteligencia Semántica│
-   │  (RapidOCR / ONNX)    │ │   (LLM / VLM Local)   │
-   ├───────────────────────┤ ├───────────────────────┤
-   │ • 100% Local y Ágil   │ │ • Resúmenes y esquemas│
-   │ • Coordenadas exactas │ │ • Extracción a JSON   │
-   │ • PDF Sandwich        │ │ • Traducción contextual│
-   │ • DOCX / XLSX / TXT   │ │ • Análisis de datos   │
-   └───────────────────────┘ └───────────────────────┘
+```text
+Open OCReader/
+├── src/                      # Código fuente en Python
+│   ├── ocr_tool.py           # CLI principal
+│   ├── Open_OCReader.pyw     # Lanzador gráfico sin consola
+│   └── open_ocreader/        # Núcleo modular (OCR, formatos, GUI, IA local, logs)
+├── scripts/
+│   ├── windows/              # Scripts .bat y compilador .exe (build_exe.py)
+│   └── linux/                # Scripts .sh de instalación, ejecución y compilación
+├── models/                   # Modelos GGUF locales (Qwen3-VL-4B-Instruct)
+├── bin/                      # Binarios portables de llama.cpp por sistema operativo
+├── dist/                     # Ejecutables independientes compilados
+├── samples/                  # Muestra de prueba (factura_prueba.png)
+└── docs/                     # Guías de instalación y uso por plataforma
 ```
 
-1. **Pilar 1: Digitalización Estructural (RapidOCR / ONNX Runtime)**
-   - Ejecución ultrarrápida en el procesador (CPU) de tu ordenador (~0,2 segundos por página).
-   - Detección precisa de las cajas delimitadoras de cada palabra `(x, y, ancho, alto)`.
-   - Generación de **PDFs buscables tipo "Sandwich"**: el escaneo original se mantiene 100% intacto a nivel visual (no se mueve ni un solo píxel, firma o logotipo), mientras se superpone una capa de texto invisible exactamente alineada.
-   - Exportación limpia y estructurada a `.docx` (Word), `.xlsx` (Excel) y `.txt`.
+---
 
-2. **Pilar 2: Inteligencia Semántica (VLM / LLM local)**
-   - Integración directa con entornos locales de IA (como Ollama, Llama.cpp o modelos de visión VLM locales).
-   - Generación de resúmenes ejecutivos, esquemas y traducción contextual.
-   - Extracción de datos clave a formato estructurado JSON (facturas, nóminas, contratos, recibos) sin enviar información privada a servidores externos.
+## 🌟 Arquitectura en Dos Pilares
+
+1. **Pilar 1: Digitalización Estructural Rápida (`RapidOCR / ONNX`)**
+   - Extrae el 100% del texto de imágenes (`JPG`, `PNG`, `TIFF`, `BMP`, `WebP`) y `PDF` multipágina.
+   - **PDF Buscable (Sandwich)**: Mantiene la imagen original intacta al 100% con una capa de texto invisible alineada por coordenadas.
+   - Exportación a **Word (`.docx`)**, **Excel (`.xlsx`)**, **Texto (`.txt`)** y **JSON (`.json`)**.
+
+2. **Pilar 2: Inteligencia Documental Local (`llama.cpp` + `Qwen3-VL-4B-Instruct`)**
+   - **El modelo permanece cargado en memoria** durante toda la sesión para responder al instante.
+   - **✍️ OCR sobre Letra Manuscrita**: Lee caligrafía humana difícil mediante visión multimodal.
+   - **🌐 Traducción al Español**: Traduce documentos de cualquier idioma manteniendo términos técnicos.
+   - **🔒 Anonimización RGPD**: Ocultación híbrida (Regex + IA) de DNI, NIE, CIF, IBAN, teléfonos, correos, nombres y direcciones.
+   - **💬 Preguntas y Resúmenes (Q&A)**: Haz preguntas directas sobre el contenido o genera resúmenes ejecutivos.
 
 ---
 
-## ✨ Características Principales
+## 📥 Descarga según tu Sistema Operativo
 
-- 🔒 **100% Local y Privado**: Se ejecuta íntegramente en tu máquina. Sin telemetría, sin suscripciones y sin enviar datos a la nube.
-- 🎯 **Fidelidad visual absoluta (PDF Sandwich)**: Conserva el aspecto visual original de tu escaneo al milímetro. Busca con `Ctrl + F`, selecciona y copia texto cómodamente.
-- ⚡ **Rápido y ligero**: Motor optimizado mediante ONNX Runtime. No requiere tarjetas gráficas de gama alta ni dependencias complejas.
-- 📂 **Formatos de entrada universales**: Admite imágenes (JPG, PNG, TIFF, BMP, WebP) y ficheros PDF multipágina.
-- 📊 **Múltiples formatos de salida**:
-  - `PDF`: PDF con capa de texto buscable transparente (opción por defecto).
-  - `DOCX`: Documento editable de Microsoft Word respetando párrafos.
-  - `XLSX`: Hojas de cálculo con tablas volcadas a celdas reales de Excel.
-  - `TXT`: Volcado de texto plano ordenado por lectura natural.
-- 🤖 **Extensible con Inteligencia Artificial**: Módulos preparados para conectar modelos de lenguaje locales para razonar sobre el texto extraído.
+### 🪟 Windows
 
----
+* **Sin Python instalado (Recomendado para usuarios)**:
+  1. Descarga la versión compilada en la sección **Releases** de GitHub (o compílala tú mismo con `scripts\windows\compilar.bat`).
+  2. Haz doble clic en **`scripts\windows\iniciar.bat`** (o directamente en `dist\Open_OCReader\Open_OCReader.exe`).
+* **Desde el código fuente**:
+  ```powershell
+  git clone https://github.com/Ydalgo/Open-OCReader.git
+  cd Open-OCReader
+  pip install -r requirements.txt
+  pythonw src\Open_OCReader.pyw
+  ```
 
-## 🚀 Instalación Rápida
+### 🐧 Linux
 
-### 1. Clonar el repositorio
 ```bash
 git clone https://github.com/Ydalgo/Open-OCReader.git
 cd Open-OCReader
+chmod +x scripts/linux/*.sh
+./scripts/linux/instalar.sh
+./scripts/linux/iniciar.sh
 ```
-
-### 2. Instalar las dependencias
-```bash
-pip install -r requirements.txt
-```
-
-*(Dependencias principales: `rapidocr-onnxruntime`, `pypdf`, `reportlab`, `openpyxl`, `python-docx`, `Pillow`, `opencv-python`)*
+*(Para generar un binario independiente en Linux sin Python: `./scripts/linux/compilar.sh`).*
 
 ---
 
-## 💻 Uso desde la Terminal (CLI) e Interfaz Gráfica (GUI)
+## 🤖 Descarga Automática de Modelos de IA
 
-Open OCReader ofrece tanto modo visual interactivo como ejecución rápida por consola:
+Si descargas el código fuente y la carpeta `models/` está vacía, al pulsar cualquier función de IA la aplicación te permitirá elegir desde dónde descargar **Qwen3-VL-4B-Instruct**:
+* **🌐 Página Oficial (Hugging Face)**: `Qwen/Qwen3-VL-4B-Instruct-GGUF`
+* **🐙 Proyecto GitHub**: Releases oficiales de `Ydalgo/Open-OCReader`
 
-### 1. Interfaz gráfica interactiva (GUI)
-Si ejecutas la herramienta **sin parámetros**, se abrirá automáticamente la ventana gráfica:
-```bash
-python ocr_tool.py
-```
-*(También puedes forzar la apertura visual con `python ocr_tool.py --gui`)*.
-
-La interfaz permite:
-- Seleccionar el fichero de entrada mediante un explorador de archivos nativo.
-- Elegir el formato deseado (PDF, DOCX, XLSX, TXT, JSON).
-- Definir la ruta de destino.
-- Ver la barra de progreso en segundo plano sin que la ventana se bloquee.
-- Abrir directamente el fichero generado o su carpeta contenedora al finalizar.
-
-### 2. Uso estándar por consola: convertir a PDF buscable
-```bash
-# Genera 'documento_ocr.pdf' manteniendo el 100% del diseño original intacto
-python ocr_tool.py documento.png
-python ocr_tool.py factura.pdf
-```
-
-### 2. Indicar un fichero de salida específico
-```bash
-python ocr_tool.py escaneo.jpg -o mi_documento_buscable.pdf
-```
-
-### 3. Exportar a otros formatos
-```bash
-# Exportar tablas a hoja de cálculo de Excel
-python ocr_tool.py informe_tabla.png -f xlsx -o informe.xlsx
-
-# Exportar a documento editable de Word
-python ocr_tool.py contrato.pdf -f docx -o contrato.docx
-
-# Volcar a texto plano
-python ocr_tool.py notas.jpg -f txt -o notas.txt
-```
-
-### 4. Modo semántico con Inteligencia Artificial (en desarrollo)
-```bash
-# Extraer los datos de una factura en formato estructurado JSON con un modelo local
-python ocr_tool.py factura.pdf --ai extract-json -o factura.json
-
-# Generar un resumen del documento
-python ocr_tool.py acuerdo.pdf --ai summarize
-```
+Los binarios portables de `llama.cpp` para tu sistema operativo (`Windows`, `Linux` o `macOS`) se descargan automáticamente en `bin/`.
 
 ---
 
-## 🐍 Uso desde Python (API)
+## 💻 Uso desde Terminal (CLI)
 
-También puedes integrar Open OCReader como módulo dentro de tus propios scripts y aplicaciones en Python:
+```bash
+# Abrir interfaz gráfica (Drag & Drop, Ctrl+V, sin ventana CMD)
+python src/ocr_tool.py
 
-```python
-from open_ocreader import DocumentConverter
+# Convertir a PDF buscable manteniendo el diseño original
+python src/ocr_tool.py samples/factura_prueba.png
 
-# Inicializar el conversor
-conversor = DocumentConverter()
+# Exportar tabla a Excel o Word
+python src/ocr_tool.py samples/factura_prueba.png -f xlsx
+python src/ocr_tool.py documento.pdf -f docx
 
-# Convertir una imagen o PDF a PDF con texto buscable
-resultado = conversor.convert(
-    input_path="recibo_escaneado.jpg",
-    output_path="recibo_buscable.pdf",
-    output_format="pdf"
-)
-
-print(f"Documento procesado con éxito en {resultado.elapsed_seconds:.2f} segundos.")
+# Funciones de IA local
+python src/ocr_tool.py carta_manuscrita.jpg -m
+python src/ocr_tool.py contrato.pdf --ai summarize
+python src/ocr_tool.py manual_en.pdf --ai translate
+python src/ocr_tool.py nomina.pdf --ai anonymize
+python src/ocr_tool.py factura.png --ai ask --question "¿Cuál es el total?"
 ```
-
----
-
-## 🗺️ Hoja de Ruta (Roadmap)
-
-- [x] Integración del motor rápido de OCR en ONNX (`rapidocr-onnxruntime`)
-- [x] Generador de PDF "Sandwich" con posicionamiento exacto de coordenadas
-- [x] Gestión de ficheros PDF multipágina y renderizado de alta resolución
-- [x] Detección de celdas para generación de hojas de cálculo `.xlsx`
-- [x] Reconstrucción de párrafos y títulos en documentos `.docx`
-- [x] Interfaz gráfica de escritorio nativa interactiva (GUI)
-- [ ] Conector con IA local (Ollama / Llama.cpp / Qwen) para resúmenes y extracción a JSON
-
----
-
-## 🤝 Cómo Contribuir
-
-¡Las contribuciones de la comunidad son muy bienvenidas! Si quieres proponer mejoras, corregir fallos o añadir nuevos formatos:
-
-1. Haz un Fork del repositorio.
-2. Crea una rama para tu funcionalidad (`git checkout -b feature/NuevaCaracteristica`).
-3. Confirma tus cambios (`git commit -m 'Añadir nueva característica'`).
-4. Sube la rama a tu repositorio (`git push origin feature/NuevaCaracteristica`).
-5. Abre una Pull Request.
 
 ---
 
 ## 📄 Licencia y Autoría
 
-Este proyecto se distribuye bajo la licencia de código abierto **MIT**.
+Distribuido bajo licencia **MIT**.
 
-* **Autores:**
-  * **Ydalgo** (Creador y mantenedor del proyecto)
-  * **Antigravity** (Google DeepMind - Asistente de arquitectura, diseño y desarrollo)
+* **Ydalgo** — Creador y mantenedor del proyecto
+* **Antigravity** (Google DeepMind) — Asistente de arquitectura y desarrollo
 
-Consulta el fichero `LICENSE` para conocer todos los detalles legales.
-
----
-
-<p align="center">
-  Desarrollado con ❤️ para impulsar la privacidad, el software libre y las herramientas 100% locales.
-</p>
+Para más detalles, consulta [docs/INSTALACION_Y_USO.md](docs/INSTALACION_Y_USO.md).

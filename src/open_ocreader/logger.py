@@ -31,7 +31,8 @@ def get_logs_dir() -> Path:
         # Si corre empaquetado como .exe con PyInstaller
         base_dir = Path(sys.executable).resolve().parent
     else:
-        base_dir = Path(__file__).resolve().parent.parent
+        # src/open_ocreader/logger.py -> raíz del proyecto
+        base_dir = Path(__file__).resolve().parent.parent.parent
 
     logs_dir = base_dir / "logs"
     try:

@@ -78,6 +78,7 @@ class OpenOCReaderGUI:
         self._build_ui()
         self._setup_drag_and_drop()
         self._setup_clipboard_paste()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     def _build_ui(self):
         main_frame = ttk.Frame(self.root, padding="14 12 14 12")
@@ -487,17 +488,88 @@ class OpenOCReaderGUI:
             messagebox.showwarning("Pregunta vacía", "Escribe la pregunta que deseas hacer sobre el documento.")
             return
 
+        use_handwriting = self.handwriting_var.get()
+        needs_llm = (action != "transcribe") or use_handwriting
+
+        if needs_llm:
+            from .ai import LlamaRuntimeManager
+            runtime = LlamaRuntimeManager.get_instance()
+            if not runtime.is_models_present():
+                chosen_source = self._ask_model_download_source()
+                if not chosen_source:
+                    return
+                runtime.preferred_model_source = chosen_source
+
         for b in self.ai_buttons:
             b.config(state=tk.DISABLED)
         self.ai_progress.start(10)
         self.ai_status_var.set("Preparando análisis con IA local...")
 
-        use_handwriting = self.handwriting_var.get()
         threading.Thread(
             target=self._ai_worker,
             args=(in_path, action, question, use_handwriting),
             daemon=True,
         ).start()
+
+    def _ask_model_download_source(self):
+        """Diálogo visual para elegir desde dónde descargar el modelo si no existe localmente."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Descargar Modelo de IA (Qwen3-VL-4B)")
+        dialog.geometry("480x210")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        result = {"source": None}
+
+        frame = ttk.Frame(dialog, padding="16")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text="No se ha encontrado el modelo de IA en la carpeta 'models/'.",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 6))
+
+        ttk.Label(
+            frame,
+            text="Para usar la IA local (manuscritos, traducción, Q&A y anonimización),\n"
+                 "elige desde dónde deseas descargar los ficheros GGUF (~2,9 GB):",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(0, 14))
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill=tk.X)
+
+        def pick(src):
+            result["source"] = src
+            dialog.destroy()
+
+        ttk.Button(
+            btn_frame,
+            text="🌐 Página Oficial (Hugging Face)",
+            command=lambda: pick("official"),
+        ).pack(fill=tk.X, pady=3)
+
+        ttk.Button(
+            btn_frame,
+            text="🐙 Proyecto GitHub (Ydalgo/Open-OCReader)",
+            command=lambda: pick("github"),
+        ).pack(fill=tk.X, pady=3)
+
+        ttk.Button(btn_frame, text="Cancelar", command=dialog.destroy).pack(fill=tk.X, pady=(6, 0))
+
+        self.root.wait_window(dialog)
+        return result["source"]
+
+    def _on_closing(self):
+        """Libera el servidor llama.cpp en memoria al cerrar la ventana."""
+        try:
+            from .ai import LlamaRuntimeManager
+            LlamaRuntimeManager.get_instance().stop_server()
+        except Exception:
+            pass
+        self.root.destroy()
 
     def _ai_worker(self, in_path: str, action: str, question: str, use_handwriting: bool):
         try:

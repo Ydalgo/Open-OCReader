@@ -1,10 +1,10 @@
 """
 Script para compilar Open OCReader en un ejecutable independiente (.exe) para Windows.
-Permite ejecutar la aplicación en cualquier ordenador sin necesidad de tener Python instalado.
+Genera el programa en dist/Open_OCReader/ listo para usar sin Python instalado.
 
 Uso:
-    python build_exe.py            (Modo directorio: genera carpeta con Open_OCReader.exe, arranque instantáneo)
-    python build_exe.py --onefile  (Modo monolitico: genera un único archivo .exe portátil)
+    python scripts/windows/build_exe.py
+    python scripts/windows/build_exe.py --onefile
 """
 
 import sys
@@ -13,15 +13,14 @@ from pathlib import Path
 
 
 def build():
-    base_dir = Path(__file__).resolve().parent
+    # Raíz del proyecto: dos niveles arriba de scripts/windows/
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    src_dir = base_dir / "src"
     is_onefile = "--onefile" in sys.argv
 
     print("=" * 65)
     print(" Compilando Open OCReader a ejecutable (.exe)")
-    if is_onefile:
-        print(" Modo: Archivo único portátil (--onefile)")
-    else:
-        print(" Modo: Paquete con arranque rápido (dist/Open_OCReader/)")
+    print(" Modo:", "Archivo único portátil (--onefile)" if is_onefile else "Paquete rápido (dist/Open_OCReader/)")
     print("=" * 65)
 
     cmd = [
@@ -30,7 +29,8 @@ def build():
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--windowed",  # Sin ventana de consola CMD negra
+        "--windowed",
+        f"--paths={src_dir}",
         "--name=Open_OCReader",
         "--collect-all=rapidocr_onnxruntime",
         "--collect-all=pypdfium2",
@@ -45,7 +45,6 @@ def build():
         "--hidden-import=requests",
         "--hidden-import=huggingface_hub",
         "--hidden-import=open_ocreader.ai",
-        # Excluir paquetes pesados de Anaconda no requeridos por Open OCReader
         "--exclude-module=torch",
         "--exclude-module=torchvision",
         "--exclude-module=transformers",
@@ -60,33 +59,19 @@ def build():
     if is_onefile:
         cmd.append("--onefile")
 
-    cmd.append(str(base_dir / "Open_OCReader.pyw"))
+    cmd.append(str(src_dir / "Open_OCReader.pyw"))
 
-    print("\nEjecutando PyInstaller, esto puede tomar aproximadamente 1 minuto...")
     result = subprocess.run(cmd, cwd=str(base_dir))
 
     if result.returncode == 0:
         dist_dir = base_dir / "dist"
-        if is_onefile:
-            exe_path = dist_dir / "Open_OCReader.exe"
-        else:
-            exe_path = dist_dir / "Open_OCReader" / "Open_OCReader.exe"
-
-        # Crear lanzador directo en la carpeta raíz para máxima comodidad
-        launcher_bat = base_dir / "Iniciar_Open_OCReader.bat"
-        with open(launcher_bat, "w", encoding="utf-8") as f:
-            f.write('@echo off\nstart "" "%~dp0dist\\Open_OCReader\\Open_OCReader.exe"\n')
-
+        exe_path = dist_dir / "Open_OCReader.exe" if is_onefile else dist_dir / "Open_OCReader" / "Open_OCReader.exe"
         print("\n" + "=" * 65)
-        print("✓ ¡Compilación completada con éxito!")
-        print(f"Ubicación exacta del ejecutable: {exe_path}")
-        print(f"Lanzador directo creado en la raíz: {launcher_bat}")
+        print("OK! Compilación completada con éxito.")
+        print(f"Ejecutable: {exe_path}")
         print("=" * 65)
-
-        # Abrir la carpeta contenedora en el Explorador de Windows para que el usuario lo vea
         try:
-            target_folder = exe_path.parent if exe_path.exists() else dist_dir
-            subprocess.run(["explorer.exe", str(target_folder)], check=False)
+            subprocess.run(["explorer.exe", str(exe_path.parent)], check=False)
         except Exception:
             pass
     else:
