@@ -139,6 +139,38 @@ python src/ocr_tool.py --update
 
 ---
 
+## 🛠️ Tecnologías Utilizadas, Créditos y Agradecimiento Personal
+
+> **Agradecimiento de Ydalgo:**
+> *Este proyecto no habría sido posible sin el trabajo generoso y brillante de miles de desarrolladores, investigadores y comunidades de software libre de todo el mundo. Quiero expresar mi más sincero agradecimiento personal a todos los autores, mantenedores y organizaciones detrás de cada una de estas tecnologías por compartirlas abiertamente y permitirnos construir herramientas libres, privadas y al alcance de cualquiera.*
+
+### 🐍 Lenguajes y Sistemas Operativos
+* **[Python](https://www.python.org/)**: Lenguaje principal que orquesta toda la aplicación (núcleo OCR, interfaz gráfica con `Tkinter`, CLI, API REST, mantenimiento y gobernanza). Elegido por su claridad, ecosistema científico y portabilidad multiplataforma.
+* **C / C++**: Lenguaje en el que están escritos los motores de alto rendimiento subyacentes (`llama.cpp`, `ONNX Runtime`, `OpenCV`, `PDFium`) y al que **Nuitka** compila la aplicación para distribuir ejecutables nativos rápidos y autónomos.
+* **Batch / PowerShell y Bash / `systemd`**: Scripts nativos de automatización, instalación, compilación y servicios del sistema.
+* **Sistemas Operativos soportados**: **Windows**, **GNU/Linux** y **macOS**, con detección automática de aceleración gráfica mediante **[Vulkan](https://www.vulkan.org/)**, **Apple Metal** o **CPU**.
+
+### 🔍 Motor de Digitalización Estructural
+* **[RapidOCR](https://github.com/RapidAI/RapidOCR) y [ONNX Runtime](https://onnxruntime.ai/)**:
+  * **RapidOCR** es un motor OCR de código abierto derivado de PaddleOCR, diseñado para extraer texto con coordenadas geométricas exactas a gran velocidad en CPU sin dependencias pesadas.
+  * **ONNX Runtime** (Microsoft) es el motor de inferencia multiplataforma en C++ que ejecuta los modelos neuronales de RapidOCR con optimizaciones de procesador (AVX2/SIMD).
+* **Procesamiento Documental e Imagen**:
+  * **[pypdfium2](https://github.com/pypdfium2-team/pypdfium2)** (basado en Google PDFium) y **[pypdf](https://pypdf.readthedocs.io/)** para lectura y renderizado de PDFs multipágina.
+  * **[ReportLab](https://www.reportlab.com/)** para construir los PDFs buscables tipo *Sandwich* con capa de texto invisible.
+  * **[OpenCV](https://opencv.org/)** y **[Pillow](https://python-pillow.org/)** para el tratamiento de imágenes.
+  * **[python-docx](https://python-docx.readthedocs.io/)** y **[openpyxl](https://openpyxl.readthedocs.io/)** para la generación de documentos Word y hojas de cálculo Excel.
+
+### 🧠 Motor de Inteligencia Artificial Local
+* **[llama.cpp](https://github.com/ggml-org/llama.cpp)**: Extraordinario motor de inferencia en C/C++ impulsado por Georgi Gerganov y la comunidad `ggml-org`. Permite ejecutar modelos de lenguaje y visión en formato cuantizado **GGUF** 100% en local, aprovechando tanto CPUs estándar como GPUs (Vulkan, CUDA y Metal).
+* **[Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF)** ([Qwen Team — Alibaba](https://qwenlm.github.io/)): Modelo multimodal (Visión + Lenguaje) de pesos abiertos bajo licencia Apache 2.0. Proporciona la lectura de **letra manuscrita**, traducciones naturales al español, resúmenes ejecutivos, preguntas sobre el contenido y apoyo semántico a la anonimización RGPD.
+* **[Hugging Face](https://huggingface.co/)**: Plataforma abierta que aloja y distribuye los modelos oficiales GGUF con verificación criptográfica.
+
+### 🌐 Servidor API y Compilación Nativa
+* **[FastAPI](https://fastapi.tiangolo.com/)**, **[Uvicorn](https://www.uvicorn.org/)** y **[Nginx](https://nginx.org/)**: Base del modo servidor REST endurecido, documentación interactiva Swagger UI y despliegue con cifrado **TLS 1.3**.
+* **[Nuitka](https://nuitka.net/)** y **[PyInstaller](https://pyinstaller.org/)**: Herramientas de compilación que permiten empaquetar Open OCReader en ejecutables independientes para ordenadores sin Python instalado.
+
+---
+
 ## 📄 Licencia Libre (Copyleft) y Autoría
 
 **Open OCReader** es **Software Libre** distribuido bajo la licencia **[GNU General Public License v3.0 (GNU GPL v3.0)](https://www.gnu.org/licenses/gpl-3.0.html)**:
