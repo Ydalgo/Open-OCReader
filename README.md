@@ -219,6 +219,7 @@ Un pilar fundamental de la arquitectura y la ingeniería de contexto de **Open O
 * **Libertad de uso**: Libre para uso personal, corporativo y en la Administración Pública.
 * **Mención obligatoria**: Cualquier reproducción, distribución o trabajo derivado debe mantener el reconocimiento expreso a los autores originales.
 * **Copyleft fuerte (Compartir Igual)**: Si reproduces, modificas o distribuyes una versión basada en Open OCReader, **estás obligado a publicar tu versión derivada también como código libre bajo la misma licencia GNU GPL v3.0**. No se permite cerrar el código en un producto privativo.
+* **Exención de Responsabilidad sobre la IA e Integridad de Pesos**: Open OCReader integra modelos abiertos de terceros (`Qwen3-VL` y `BGE-M3`). El creador y colaboradores **NO alteran, entrenan ni modifican los pesos neuronales originales** (se ejecutan en sus versiones oficiales GGUF con verificación criptográfica SHA-256). Los autores no asumen responsabilidad alguna por las respuestas, redacciones o expresiones que pueda formular el modelo de IA. Conforme al EU AI Act, el usuario final debe revisar y validar humanamente (*Human-in-the-Loop*) toda salida antes de su uso oficial.
 
 * **Autores**:
   * **[Ydalgo](https://github.com/Ydalgo)** — Creador y mantenedor del proyecto

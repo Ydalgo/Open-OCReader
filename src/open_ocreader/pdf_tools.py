@@ -16,11 +16,9 @@ import pikepdf
 import pymupdf as fitz
 from .formats.pdf_builder import COMPRESSION_PRESETS, _apply_pdfa_metadata_and_profile
 from .logger import get_logger
-from .security import SecurityError, validate_input_file
+from .security import MAX_PDF_PAGES, SecurityError, validate_input_file
 
 logger = get_logger("pdf_tools")
-
-MAX_PDF_TOOL_PAGES = 500
 
 WATERMARK_OCG_KEYWORDS = (
     "watermark", "marca", "agua", "fondo", "background",
@@ -44,9 +42,9 @@ def unlock_pdf(
 
     try:
         with pikepdf.open(str(in_p), password=password or "") as pdf:
-            if len(pdf.pages) > MAX_PDF_TOOL_PAGES:
+            if len(pdf.pages) > MAX_PDF_PAGES:
                 raise SecurityError(
-                    f"El documento supera el límite de seguridad de {MAX_PDF_TOOL_PAGES} páginas "
+                    f"El documento supera el límite de seguridad de {MAX_PDF_PAGES} páginas "
                     f"({len(pdf.pages)} páginas detectadas)."
                 )
             was_encrypted = pdf.is_encrypted
@@ -88,9 +86,9 @@ def remove_signatures(
     removed_annots = 0
 
     with pikepdf.open(str(in_p)) as pdf:
-        if len(pdf.pages) > MAX_PDF_TOOL_PAGES:
+        if len(pdf.pages) > MAX_PDF_PAGES:
             raise SecurityError(
-                f"El documento supera el límite de seguridad de {MAX_PDF_TOOL_PAGES} páginas "
+                f"El documento supera el límite de seguridad de {MAX_PDF_PAGES} páginas "
                 f"({len(pdf.pages)} páginas detectadas)."
             )
         # 1. Quitar bloqueos de permisos de firma (DocMDP / UR3)
@@ -196,9 +194,9 @@ def remove_watermarks(
 
     doc = fitz.open(str(in_p))
     try:
-        if len(doc) > MAX_PDF_TOOL_PAGES:
+        if len(doc) > MAX_PDF_PAGES:
             raise SecurityError(
-                f"El documento supera el límite de seguridad de {MAX_PDF_TOOL_PAGES} páginas "
+                f"El documento supera el límite de seguridad de {MAX_PDF_PAGES} páginas "
                 f"({len(doc)} páginas detectadas)."
             )
         # 1. Ocultar capas opcionales (OCG) con nombre de marca de agua
@@ -291,10 +289,10 @@ def optimize_pdf(
     orig_size = in_p.stat().st_size
 
     doc = fitz.open(str(in_p))
-    if len(doc) > MAX_PDF_TOOL_PAGES:
+    if len(doc) > MAX_PDF_PAGES:
         doc.close()
         raise SecurityError(
-            f"El documento supera el límite de seguridad de {MAX_PDF_TOOL_PAGES} páginas "
+            f"El documento supera el límite de seguridad de {MAX_PDF_PAGES} páginas "
             f"({len(doc)} páginas detectadas)."
         )
     out_doc = fitz.open()

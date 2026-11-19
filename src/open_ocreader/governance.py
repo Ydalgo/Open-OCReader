@@ -125,6 +125,19 @@ def collect_governance_data() -> Dict[str, Any]:
                 ),
             },
         ],
+        "ai_disclaimer_and_guardrails": {
+            "unmodified_official_weights": True,
+            "weights_integrity_statement": (
+                "Los pesos neuronales de Qwen3-VL y BGE-M3 son oficiales y no han sido modificados, "
+                "afinados ni manipulados por los autores de la aplicación."
+            ),
+            "author_disclaimer": (
+                "El creador y colaboradores de Open OCReader no se hacen responsables de las respuestas, "
+                "opiniones o expresiones que el modelo de IA formule en sus salidas generativas."
+            ),
+            "master_guardrails_active": True,
+            "human_in_the_loop_mandatory": True,
+        },
     }
 
 
@@ -198,7 +211,15 @@ def _write_markdown_report(data: Dict[str, Any], out: Path) -> None:
     for row in data["regulatory_matrix"]:
         lines.append(f"| **{row['framework']}** | {row['classification']} | {row['compliance_notes']} |")
 
+    disc = data.get("ai_disclaimer_and_guardrails", {})
     lines.extend([
+        "",
+        "## 5. Exención de Responsabilidad, Integridad de Pesos y Rieles de Seguridad",
+        "",
+        f"- **Integridad de Pesos Neuronales:** {disc.get('weights_integrity_statement', 'N/A')}",
+        f"- **Exención de Responsabilidad:** {disc.get('author_disclaimer', 'N/A')}",
+        f"- **Rieles Éticos y Prompt Madre Institucional:** {'ACTIVO (Cortesía, neutralidad y rigor analítico)' if disc.get('master_guardrails_active') else 'N/A'}",
+        f"- **Supervisión Humana Obligatoria (Human-in-the-Loop):** {'OBLIGATORIA (EU AI Act)' if disc.get('human_in_the_loop_mandatory') else 'N/A'}",
         "",
         "---",
         "*Nota: Este informe documenta el estado técnico verificado del despliegue. "
@@ -258,6 +279,13 @@ def _write_docx_report(data: Dict[str, Any], out: Path) -> None:
     for k, v in data["security_controls"].items():
         val = "ACTIVO" if v is True else ("NO CONFIGURADO" if v is False else str(v))
         doc.add_paragraph(f"{k}: {val}", style="List Bullet")
+
+    doc.add_heading("5. Exención de Responsabilidad y Rieles Éticos de IA", level=1)
+    disc = data.get("ai_disclaimer_and_guardrails", {})
+    doc.add_paragraph(f"Integridad de Pesos: {disc.get('weights_integrity_statement', '')}", style="List Bullet")
+    doc.add_paragraph(f"Exención de Responsabilidad: {disc.get('author_disclaimer', '')}", style="List Bullet")
+    doc.add_paragraph("Prompt Madre Institucional: Activo con rieles de cortesía, objetividad y neutralidad forense.", style="List Bullet")
+    doc.add_paragraph("Supervisión Humana (Human-in-the-Loop): Obligatoria conforme al Reglamento Europeo de IA.", style="List Bullet")
 
     note = doc.add_paragraph(
         "\nDeclaración de supervisión humana: Toda salida producida por IA generativa "

@@ -2026,7 +2026,20 @@ class OpenOCReaderGUI:
             "• Observador de Hardware en tiempo real y perfiles dinámicos adaptativos.\n"
             "• Reutilización de KV Cache (cache_prompt) para respuestas inmediatas.\n\n"
             "👉 ¡Te invitamos a conocer, seguir y colaborar en el proyecto GuarIdA!\n"
-            "Actualmente en desarrollo activo para la soberanía y privacidad documental.\n"
+            "Actualmente en desarrollo activo para la soberanía y privacidad documental.\n\n"
+            "4. EXENCIÓN DE RESPONSABILIDAD SOBRE EL MODELO DE IA\n"
+            "============================================================\n"
+            "• Integridad de Pesos Oficiales: Open OCReader ejecuta modelos abiertos oficiales\n"
+            "  (Qwen3-VL de Alibaba y BGE-M3 de BAAI). El autor NO modifica, NO altera,\n"
+            "  NO entrena ni interviene los pesos originales de los modelos neuronales.\n"
+            "• Descargo de Responsabilidad: El autor (Ydalgo) no se hace responsable de las\n"
+            "  respuestas, opiniones, redacciones imprecisas, alucinaciones o expresiones\n"
+            "  inadecuadas que el modelo de lenguaje de terceros pudiera formular.\n"
+            "• Rieles Éticos (Prompt Madre): Se ha integrado un sistema estricto de salvaguardas\n"
+            "  institucionales con rieles de cortesía, neutralidad absoluta y rigor analítico\n"
+            "  para garantizar que el modelo mantenga siempre un tono respetuoso y profesional.\n"
+            "• Supervisión Humana (Human-in-the-Loop): Es responsabilidad ineludible del usuario\n"
+            "  verificar y validar toda salida generada por la IA antes de su utilización oficial.\n"
         )
         txt.insert("1.0", info_text)
         txt.config(state=tk.DISABLED)

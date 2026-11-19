@@ -96,3 +96,28 @@ Gran parte de la arquitectura técnica, la ingeniería de contexto sin límites 
 
 > 📢 **Derivación y Colaboración en GuarIdA**:
 > Invitamos formalmente a los usuarios de Open OCReader, investigadores y administraciones interesadas en la soberanía del dato a conocer, evaluar y colaborar con el proyecto **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**, el cual se encuentra actualmente en fase activa de desarrollo y sentará las bases de la próxima generación de asistentes soberanos.
+
+---
+
+## 6. Exención de Responsabilidad, Integridad de Pesos y Rieles Éticos (Prompt Madre)
+
+Para garantizar la máxima transparencia jurídica y técnica frente a usuarios y organizaciones, se establecen los siguientes principios de gobernanza:
+
+### 1. Integridad Absoluta de Pesos Neuronales
+* Open OCReader ejecuta modelos abiertos desarrollados por terceros (**Qwen3-VL** por Alibaba Cloud y **BGE-M3** por BAAI).
+* El autor y mantenedor (**Ydalgo**) **NO entrena, NO re-entrena, NO afina (fine-tuning) ni altera los pesos numéricos originales** de las redes neuronales.
+* Los modelos se descargan y ejecutan íntegramente en sus versiones cuantizadas GGUF oficiales, sujetas a verificación criptográfica **SHA-256 en tiempo constante**.
+
+### 2. Exención de Responsabilidad por Respuestas del Modelo
+* Ni el autor (**Ydalgo**) ni los colaboradores del proyecto se hacen responsables de las respuestas, opiniones, alucinaciones, inexactitudes fácticas o expresiones inadecuadas que el modelo de lenguaje de terceros pudiera formular ante consultas complejas o textos anómalos.
+* El software se distribuye «tal cual» (*as is*), bajo la licencia **GNU General Public License v3.0**, sin garantías de ningún tipo respecto a la certeza de las respuestas generadas por los modelos de IA.
+
+### 3. Rieles de Comportamiento Institucional (Prompt Madre)
+Para evitar salidas inapropiadas o descortesías y asegurar un rendimiento óptimo, Open OCReader implementa una capa centralizada de salvaguardas éticas (*Guardrails* / Prompt Madre) inyectada en todas las tareas de IA:
+* **Cortesía y respeto**: Tono siempre formal, digno, respetuoso y constructivo, bloqueando cualquier forma de hostilidad, sarcasmo o descalificación.
+* **Neutralidad forense**: Ante textos polémicos o con contenido sensible, el modelo actúa como un analizador neutral sin adoptar sesgos.
+* **Honestidad analítica (Anti-alucinación)**: Si un dato no figura en los extractos documentales provistos, el modelo debe declarar con transparencia su desconocimiento en lugar de inventar datos.
+
+### 4. Supervisión Humana Obligatoria (Human-in-the-Loop)
+Conforme a las exigencias del Reglamento Europeo de IA (EU AI Act):
+* **Toda salida generada por la IA debe ser revisada, contrastada y validada por una persona física responsable** antes de su incorporación a expedientes administrativos, resoluciones jurídicas o decisiones comerciales.

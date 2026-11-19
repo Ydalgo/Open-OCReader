@@ -11,6 +11,12 @@ Todos los cambios notables de este proyecto se documentan en este fichero.
   * Inclusión de atribución formal y detallada en `README.md`, `docs/CUMPLIMIENTO_IA_Y_LICENCIA.md` y la ventana `⚖️ Legal / IA` de la interfaz gráfica.
   * Desglose explícito de los componentes estructurales y algoritmos adaptados del proyecto hermano **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**: Árbol de Nodos Documental (AST), Compresión BPE/Minificación, Búsqueda Híbrida RRF (BM25Okapi + BGE-M3), Persistencia Segregada SQLite WAL comprimida por SHA-256, Observación Dinámica de Hardware y Reutilización de KV Cache (`cache_prompt`).
   * Enlace visible y botón interactivo en la GUI para invitar a la comunidad a conocer, seguir y colaborar en el proyecto GuarIdA.
+* **Descargo de Responsabilidad e Integridad de Pesos Neuronales**:
+  * Declaración legal y técnica explícita en `README.md`, `docs/CUMPLIMIENTO_IA_Y_LICENCIA.md`, `gui.py` e informe de gobernanza `governance.py`.
+  * Se aclara formalmente que Open OCReader ejecuta modelos abiertos oficiales (`Qwen3-VL` y `BGE-M3`) **sin modificar, alterar ni entrenar sus pesos numéricos originales**, y que el autor no asume responsabilidad alguna por respuestas groseras, imprecisas o alucinadas que el modelo de terceros pudiera generar.
+* **Prompt Madre Institucional y Rieles de Comportamiento (`guardrails.py`)**:
+  * Sistema centralizado de guardrails inyectado como base en todas las tareas generativas (`document_qa.py`, `multi_doc_chat.py`, `translator.py`).
+  * Impone rieles de cortesía innegociable, respeto absoluto, neutralidad forense ante documentos conflictivos, rigor analítico y honestidad ante lagunas de información para prevenir que el modelo exponga al autor o emita expresiones inapropiadas.
 
 ### Seguridad y Auditoría Completa
 * **Mitigación contra Inyección Indirecta de Prompts (Indirect Prompt Injection)**:
@@ -21,16 +27,16 @@ Todos los cambios notables de este proyecto se documentan en este fichero.
 * **Blindaje de Actualizador In-Place (`updater.py`)**:
   * Límite defensivo de 50 MB en streaming contra bombas de descompresión / DoS, validación opcional de hash SHA-256 y bloqueo estricto de binarios ejecutables (`.exe`, `.dll`, `.so`, `.bin`).
 * **Protección DoS en Herramientas PDF (`pdf_tools.py`)**:
-  * Validación obligatoria de archivos con `validate_input_file()` y límite de seguridad de 500 páginas máximas en desbloqueo, firmas, marcas de agua y optimización.
+  * Validación obligatoria de archivos con `validate_input_file()` y límite de seguridad de 300 páginas (`MAX_PDF_PAGES`) en desbloqueo, firmas, marcas de agua y optimización.
 * **Aprovisionamiento Offline MSI Endurecido (`provision_from_offline_repo.ps1`)**:
   * Validación criptográfica SHA-256 (`Get-FileHash`) de cada modelo GGUF antes de copiar a `ProgramData`.
   * Fijación de permisos ACL restrictivos con `icacls` (solo lectura/ejecución para usuarios estándar, impidiendo secuestro de binarios o DLLs).
-* **Integridad de Binarios llama.cpp (`runtime_manager.py`)**:
-  * Extracción de digest SHA-256 de notas de versión y soporte para `OPEN_OCREADER_STRICT_VERIFY=1`.
+* **Integridad Obligatoria de Binarios llama.cpp (`runtime_manager.py`)**:
+  * Extracción de digest SHA-256 de notas de versión y rechazo obligatorio incondicional (`raise SecurityError`) si no se dispone de verificación criptográfica.
 * **Endurecimiento de Servidor API REST (`server/api.py`)**:
-  * Soporte configurable para proxies inversos (`OPEN_OCREADER_TRUST_PROXY=1`) mediante `X-Real-IP` y `X-Forwarded-For`.
+  * Uso de `X-Real-IP` si la conexión procede de `127.0.0.1` (proxy Nginx) y soporte para `OPEN_OCREADER_TRUST_PROXY=1`.
   * Purga periódica de buckets inactivos en el middleware de rate-limiting para evitar fugas de memoria en DDoS.
-  * Ofuscación de telemetría interna de hardware en `/api/v1/health` público si el cliente no está autenticado.
+  * Respuesta mínima sin autenticar en `/api/v1/health` (`{"status": "ok", "version": "..."}`), exponiendo el detalle de hardware únicamente con `X-API-Key` válida.
 * **Servicio Linux endurecido (`scripts/linux/open-ocreader.service`)**:
   * Inclusión de `cache/` y `projects/` en `ReadWritePaths=` para garantizar persistencia de SQLite WAL en sistemas con `ProtectSystem=strict`.
 

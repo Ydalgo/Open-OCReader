@@ -260,7 +260,7 @@ class LlamaRuntimeManager:
 
         self._download_file_stream(asset_url, archive_path, progress_cb=progress_cb, label=asset_name)
 
-        # Verificar integridad criptográfica SHA-256
+        # Verificar integridad criptográfica SHA-256 obligatoria (M-04)
         if not asset_digest:
             # Buscar en el cuerpo del release si vienen listados hashes sha256
             rel_body = rel.get("body", "") if "rel" in locals() and isinstance(rel, dict) else ""
@@ -269,23 +269,18 @@ class LlamaRuntimeManager:
                 if match:
                     asset_digest = match.group(1)
 
-        if asset_digest:
-            if progress_cb:
-                progress_cb("Verificando firma SHA-256 del paquete descargado...")
-            verify_sha256(archive_path, asset_digest)
-            logger.info(f"Integridad SHA-256 verificada para {asset_name}.")
-        else:
-            is_strict = os.environ.get("OPEN_OCREADER_STRICT_VERIFY", "").strip().lower() in ("1", "true", "yes")
-            if is_strict:
-                if archive_path.exists():
-                    archive_path.unlink(missing_ok=True)
-                raise SecurityError(
-                    f"Modo estricto activo: No se encontró digest SHA-256 para el binario '{asset_name}'. Descarga cancelada."
-                )
-            logger.warning(
-                f"Aviso de seguridad: No se pudo obtener digest SHA-256 automático para '{asset_name}'. "
-                "Se recomienda verificar la fuente oficial antes de ejecutar en entornos de alta seguridad."
+        if not asset_digest:
+            if archive_path.exists():
+                archive_path.unlink(missing_ok=True)
+            raise SecurityError(
+                f"Verificación de seguridad fallida: No se encontró digest o firma SHA-256 oficial para el binario '{asset_name}'. "
+                "Para proteger el sistema contra la ejecución de binarios no autenticados, la instalación ha sido cancelada."
             )
+
+        if progress_cb:
+            progress_cb("Verificando firma SHA-256 del paquete descargado...")
+        verify_sha256(archive_path, asset_digest)
+        logger.info(f"Integridad SHA-256 verificada para {asset_name}.")
 
         if progress_cb:
             progress_cb("Extrayendo binarios portables de forma segura...")

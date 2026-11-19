@@ -141,11 +141,11 @@ def create_app() -> FastAPI:
 
     @api.middleware("http")
     async def security_and_rate_limit_middleware(request: Request, call_next):
-        # Soporte seguro para proxy inverso si se habilita OPEN_OCREADER_TRUST_PROXY=1
+        # Soporte seguro para proxy inverso Nginx (L-01): Usar X-Real-IP si la conexión procede de 127.0.0.1
         client_ip = request.client.host if request.client else "unknown"
-        if os.environ.get("OPEN_OCREADER_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes"):
-            x_forwarded = request.headers.get("X-Forwarded-For")
+        if client_ip in ("127.0.0.1", "::1", "localhost") or os.environ.get("OPEN_OCREADER_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes"):
             x_real = request.headers.get("X-Real-IP")
+            x_forwarded = request.headers.get("X-Forwarded-For")
             if x_real:
                 client_ip = x_real.strip()
             elif x_forwarded:
@@ -163,7 +163,7 @@ def create_app() -> FastAPI:
         bucket.append(now)
 
         # Purga periódica para evitar fugas de memoria en DDoS con IPs aleatorias
-        if len(_rate_buckets) > 2000:
+        if len(_rate_buckets) > 1000:
             stale = [ip for ip, b in _rate_buckets.items() if not b or (now - b[-1] > _RATE_LIMIT_WINDOW_S * 2)]
             for ip in stale:
                 _rate_buckets.pop(ip, None)
@@ -191,18 +191,21 @@ def create_app() -> FastAPI:
             if provided and constant_time_equals(provided, expected_key):
                 is_auth = True
 
-        base_resp = {
+        if not is_auth:
+            # L-01: Sin autenticación previa devolver estrictamente solo status y version
+            return {
+                "status": "ok",
+                "version": __version__,
+            }
+
+        from ..ai import LlamaRuntimeManager
+        rt = LlamaRuntimeManager.get_instance()
+        return {
             "status": "ok",
             "version": __version__,
             "auth_required": bool(expected_key),
             "pdf_tools_enabled": not _is_pdf_tools_disabled(),
-        }
-
-        # Solo exponer telemetría y detalles internos de hardware si está autenticado o la API es pública
-        if is_auth:
-            from ..ai import LlamaRuntimeManager
-            rt = LlamaRuntimeManager.get_instance()
-            base_resp["hardware"] = {
+            "hardware": {
                 "os": rt.hw.os_name,
                 "arch": rt.hw.arch,
                 "backend": rt.hw.backend,
@@ -212,10 +215,9 @@ def create_app() -> FastAPI:
                 "ai_tier": rt.tier.tier_name,
                 "vlm_model": rt.tier.vlm_label,
                 "embed_model": rt.tier.embed_label,
-            }
-            base_resp["ai_models_ready"] = rt.is_models_present()
-
-        return base_resp
+            },
+            "ai_models_ready": rt.is_models_present(),
+        }
 
     @api.get("/api/v1/governance", dependencies=[Depends(_verify_api_key)])
     def governance_report():
