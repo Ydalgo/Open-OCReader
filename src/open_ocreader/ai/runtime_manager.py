@@ -1,15 +1,14 @@
 """
 Gestor portable y multiplataforma de llama.cpp y modelos GGUF (Qwen3-VL).
-Detecta automáticamente el sistema operativo (Windows, Linux, macOS), descarga los
-binarios oficiales si no existen, permite elegir la fuente del modelo (Oficial o GitHub)
-y mantiene el servidor cargado en memoria para respuestas instantáneas.
+Detecta automáticamente el hardware (GPU Vulkan/Metal o CPU) y el sistema operativo
+(Windows, Linux, macOS), descarga los binarios y modelos según la fuente elegida
+(Página Oficial o GitHub) y aplica las optimizaciones seguras de GuarIdA.
 """
 
 import atexit
 import base64
 import io
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -22,12 +21,18 @@ import requests
 from huggingface_hub import hf_hub_download
 from PIL import Image
 from ..logger import get_logger, get_logs_dir
+from .hardware import (
+    HardwareProfile,
+    find_free_port,
+    get_hardware_profile,
+    query_binary_help,
+)
 
 logger = get_logger("ai.runtime")
 
 
 class LlamaRuntimeManager:
-    """Gestiona binarios portables de llama.cpp y modelos GGUF locales."""
+    """Gestiona binarios portables de llama.cpp (CPU/GPU) y modelos GGUF locales."""
 
     GITHUB_LLAMA_RELEASES_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=8"
     GITHUB_PROJECT_RELEASES_API = "https://api.github.com/repos/Ydalgo/Open-OCReader/releases/latest"
@@ -37,20 +42,18 @@ class LlamaRuntimeManager:
 
     _instance: Optional["LlamaRuntimeManager"] = None
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Optional[Path] = None, force_cpu: bool = False):
         if base_dir is None:
             if getattr(sys, "frozen", False):
-                # Cuando se ejecuta como .exe compilado (ej. dist/Open_OCReader/Open_OCReader.exe)
                 self.base_dir = Path(sys.executable).resolve().parent
             else:
-                # src/open_ocreader/ai/runtime_manager.py -> raíz del proyecto
                 self.base_dir = Path(__file__).resolve().parent.parent.parent.parent
         else:
             self.base_dir = Path(base_dir)
 
-        self.platform_key = self._detect_platform_key()
+        self.hw: HardwareProfile = get_hardware_profile(force_cpu=force_cpu)
+        self.platform_key = self.hw.platform_asset_key
 
-        # Reutilizar bin/ y models/ si existen en la raíz del proyecto (útil al ejecutar desde dist/)
         self.bin_root = self.base_dir / "bin"
         if not self.bin_root.exists() and (self.base_dir.parent.parent / "bin").exists():
             self.bin_root = self.base_dir.parent.parent / "bin"
@@ -66,7 +69,10 @@ class LlamaRuntimeManager:
         self.port = 8089
         self.preferred_model_source = "official"  # 'official' | 'github'
 
-        logger.info(f"LlamaRuntimeManager inicializado. Base dir: {self.base_dir}, Plataforma: {self.platform_key}")
+        logger.info(
+            f"LlamaRuntimeManager listo | SO: {self.hw.os_name} ({self.hw.arch}) | "
+            f"Backend: {self.hw.backend.upper()} ({self.platform_key}) | Núcleos: {self.hw.cpu_cores}"
+        )
         atexit.register(self.stop_server)
 
     @classmethod
@@ -74,19 +80,6 @@ class LlamaRuntimeManager:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
-
-    @staticmethod
-    def _detect_platform_key() -> str:
-        """Detecta el identificador de plataforma oficial de las releases de llama.cpp."""
-        machine = platform.machine().lower()
-        is_arm64 = "arm" in machine or "aarch64" in machine
-
-        if sys.platform == "win32":
-            return "win-cpu-arm64" if is_arm64 else "win-cpu-x64"
-        elif sys.platform == "darwin":
-            return "macos-arm64" if is_arm64 else "macos-x64"
-        else:
-            return "ubuntu-arm64" if is_arm64 else "ubuntu-x64"
 
     @property
     def server_executable(self) -> Path:
@@ -109,36 +102,71 @@ class LlamaRuntimeManager:
         """Comprueba si binario de llama.cpp y modelos existen localmente."""
         return self.server_executable.exists() and self.is_models_present()
 
-    def ensure_llama_binary(self, progress_cb: Optional[Callable[[str], None]] = None) -> Path:
-        """Descarga y extrae el binario oficial de llama.cpp para el SO actual si no existe."""
+    def ensure_llama_binary(
+        self,
+        source: Optional[str] = None,
+        progress_cb: Optional[Callable[[str], None]] = None,
+        force_cpu_fallback: bool = False,
+    ) -> Path:
+        """
+        Descarga y extrae el binario de llama.cpp adecuado al hardware y SO actual.
+        Soporta fuente oficial (ggml-org/llama.cpp) o proyecto GitHub (Ydalgo/Open-OCReader).
+        """
+        target_key = self.platform_key
+        if force_cpu_fallback:
+            if self.hw.os_name == "Windows":
+                target_key = f"win-cpu-{self.hw.arch}"
+            elif self.hw.os_name == "Linux":
+                target_key = f"ubuntu-{self.hw.arch}"
+            self.bin_dir = self.bin_root / target_key
+
         if self.server_executable.exists():
             return self.server_executable
 
-        if progress_cb:
-            progress_cb(f"Buscando última versión oficial de llama.cpp para {self.platform_key}...")
-
-        resp = requests.get(self.GITHUB_LLAMA_RELEASES_API, timeout=20)
-        resp.raise_for_status()
-        releases = resp.json()
-
+        selected_source = source or self.preferred_model_source
         asset_url = None
         asset_name = None
         tag_name = None
 
-        for rel in releases:
-            for asset in rel.get("assets", []):
-                name = asset["name"]
-                if f"-bin-{self.platform_key}." in name:
-                    asset_url = asset["browser_download_url"]
-                    asset_name = name
-                    tag_name = rel.get("tag_name")
+        # 1. Intentar desde el proyecto GitHub si el usuario lo eligió
+        if selected_source == "github":
+            if progress_cb:
+                progress_cb(f"Buscando binario '{target_key}' en Releases de Ydalgo/Open-OCReader...")
+            try:
+                r = requests.get(self.GITHUB_PROJECT_RELEASES_API, timeout=15)
+                if r.status_code == 200:
+                    rel = r.json()
+                    for asset in rel.get("assets", []):
+                        if f"-bin-{target_key}." in asset["name"]:
+                            asset_url = asset["browser_download_url"]
+                            asset_name = asset["name"]
+                            tag_name = rel.get("tag_name")
+                            break
+            except Exception as e:
+                logger.warning(f"No se pudo consultar GitHub Releases del proyecto: {e}")
+
+        # 2. Fuente oficial ggml-org/llama.cpp (por defecto o respaldo automático)
+        if not asset_url:
+            if progress_cb:
+                progress_cb(f"Buscando binario oficial de llama.cpp para {target_key}...")
+            resp = requests.get(self.GITHUB_LLAMA_RELEASES_API, timeout=20)
+            resp.raise_for_status()
+            releases = resp.json()
+
+            for rel in releases:
+                for asset in rel.get("assets", []):
+                    name = asset["name"]
+                    if f"-bin-{target_key}." in name:
+                        asset_url = asset["browser_download_url"]
+                        asset_name = name
+                        tag_name = rel.get("tag_name")
+                        break
+                if asset_url:
                     break
-            if asset_url:
-                break
 
         if not asset_url:
             raise RuntimeError(
-                f"No se encontró un binario precompilado de llama.cpp para la plataforma '{self.platform_key}'."
+                f"No se encontró un binario precompilado de llama.cpp para '{target_key}'."
             )
 
         self.bin_dir.mkdir(parents=True, exist_ok=True)
@@ -194,7 +222,7 @@ class LlamaRuntimeManager:
         archive_path.unlink(missing_ok=True)
 
         if progress_cb:
-            progress_cb(f"✓ llama.cpp listo en {self.bin_dir}")
+            progress_cb(f"✓ llama.cpp ({target_key}) listo en {self.bin_dir}")
 
         return self.server_executable
 
@@ -203,10 +231,7 @@ class LlamaRuntimeManager:
         source: Optional[str] = None,
         progress_cb: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """
-        Descarga Qwen3-VL-4B-Instruct (Q4_K_M) y su proyector visual mmproj si no existen.
-        :param source: 'official' (Hugging Face) o 'github' (Releases de Open-OCReader).
-        """
+        """Descarga Qwen3-VL-4B-Instruct (Q4_K_M) y su proyector visual mmproj si no existen."""
         if self.is_models_present():
             return
 
@@ -223,7 +248,6 @@ class LlamaRuntimeManager:
             progress_cb("✓ Modelo Qwen3-VL-4B-Instruct listo para usar offline.")
 
     def _download_models_from_huggingface(self, progress_cb: Optional[Callable[[str], None]] = None):
-        """Descarga oficial desde Hugging Face (Qwen/Qwen3-VL-4B-Instruct-GGUF)."""
         if not self.model_path.exists():
             if progress_cb:
                 progress_cb(f"Descargando desde Hugging Face (Oficial): {self.MODEL_FILENAME}...")
@@ -243,7 +267,6 @@ class LlamaRuntimeManager:
             )
 
     def _download_models_from_github(self, progress_cb: Optional[Callable[[str], None]] = None):
-        """Descarga desde las Releases del proyecto en GitHub (Ydalgo/Open-OCReader)."""
         if progress_cb:
             progress_cb("Consultando Releases en GitHub (Ydalgo/Open-OCReader)...")
 
@@ -291,27 +314,17 @@ class LlamaRuntimeManager:
                             pct = int((downloaded * 100) / total)
                             if pct != last_pct and pct % 5 == 0:
                                 last_pct = pct
-                                progress_cb(f"Descargando {label}: {pct}% ({downloaded // (1024*1024)} / {total // (1024*1024)} MB)")
+                                progress_cb(
+                                    f"Descargando {label}: {pct}% ({downloaded // (1024*1024)} / {total // (1024*1024)} MB)"
+                                )
         tmp_path.replace(dest_path)
 
-    def start_server(
-        self,
-        n_ctx: int = 8192,
-        threads: Optional[int] = None,
-        progress_cb: Optional[Callable[[str], None]] = None,
-    ) -> None:
-        """
-        Inicia llama-server con soporte multimodal completo (--mmproj) y lo mantiene
-        residente en memoria para todas las peticiones sucesivas (texto y visión).
-        """
-        if self.server_process is not None and self.server_process.poll() is None:
-            # Ya está cargado y vivo en memoria: reutilizar inmediatamente sin reiniciar
-            return
+    def _build_optimized_server_cmd(self, n_ctx: int, force_cpu: bool = False) -> List[str]:
+        """Construye los argumentos optimizados (estilo GuarIdA) según hardware y --help del binario."""
+        self.port = find_free_port(preferred=8089)
+        cpu_threads = max(2, self.hw.cpu_cores - 1)
+        ngl = 0 if force_cpu else self.hw.n_gpu_layers
 
-        self.ensure_llama_binary(progress_cb=progress_cb)
-        self.ensure_models(source=self.preferred_model_source, progress_cb=progress_cb)
-
-        cpu_threads = threads or max(2, (os.cpu_count() or 4) - 1)
         cmd = [
             str(self.server_executable),
             "-m",
@@ -326,17 +339,72 @@ class LlamaRuntimeManager:
             str(n_ctx),
             "-t",
             str(cpu_threads),
+            "-ngl",
+            str(ngl),
         ]
 
+        # Consultar --help para activar optimizaciones seguras solo si el binario las soporta
+        help_txt = query_binary_help(self.server_executable)
+        if "--threads-batch" in help_txt or "-tb" in help_txt:
+            cmd.extend(["-tb", str(self.hw.cpu_cores)])
+        if "--no-webui" in help_txt:
+            cmd.append("--no-webui")
+        if "--flash-attn" in help_txt or "-fa" in help_txt:
+            cmd.extend(["-fa", "on"])
+        if "--cache-reuse" in help_txt:
+            cmd.extend(["--cache-reuse", "256"])
+        if "--image-min-tokens" in help_txt:
+            cmd.extend(["--image-min-tokens", "1024"])
+
+        return cmd
+
+    def start_server(
+        self,
+        n_ctx: int = 8192,
+        progress_cb: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        """
+        Inicia llama-server con el binario óptimo (GPU Vulkan/Metal o CPU),
+        optimizaciones GuarIdA y permanencia residente en memoria.
+        Si la GPU falla al inicializar, hace fallback automático a CPU.
+        """
+        if self.server_process is not None and self.server_process.poll() is None:
+            return
+
+        self.ensure_llama_binary(source=self.preferred_model_source, progress_cb=progress_cb)
+        self.ensure_models(source=self.preferred_model_source, progress_cb=progress_cb)
+
+        try:
+            self._launch_server_process(n_ctx=n_ctx, force_cpu=False, progress_cb=progress_cb)
+        except Exception as gpu_err:
+            if self.hw.n_gpu_layers > 0:
+                logger.warning(f"Fallo iniciando con GPU ({self.hw.backend}): {gpu_err}. Reintentando en modo CPU...")
+                if progress_cb:
+                    progress_cb("GPU no disponible para este modelo, cambiando a modo CPU seguro...")
+                self.ensure_llama_binary(
+                    source=self.preferred_model_source,
+                    progress_cb=progress_cb,
+                    force_cpu_fallback=True,
+                )
+                self._launch_server_process(n_ctx=n_ctx, force_cpu=True, progress_cb=progress_cb)
+            else:
+                raise
+
+    def _launch_server_process(
+        self,
+        n_ctx: int,
+        force_cpu: bool,
+        progress_cb: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        cmd = self._build_optimized_server_cmd(n_ctx=n_ctx, force_cpu=force_cpu)
+        mode_lbl = "CPU" if force_cpu or self.hw.n_gpu_layers == 0 else self.hw.backend.upper()
+
         if progress_cb:
-            progress_cb("Cargando modelo Qwen3-VL en memoria (permanecerá activo)...")
+            progress_cb(f"Cargando Qwen3-VL en memoria ({mode_lbl})...")
 
-        logger.info(f"Iniciando llama-server residente: {' '.join(cmd)}")
+        logger.info(f"Iniciando llama-server [{mode_lbl}]: {' '.join(cmd)}")
 
-        creationflags = 0
-        if sys.platform == "win32":
-            creationflags = subprocess.CREATE_NO_WINDOW
-
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         llama_log_path = get_logs_dir() / "llama_server.log"
         self.server_log_file = open(llama_log_path, "a", encoding="utf-8", errors="replace")
 
@@ -353,26 +421,23 @@ class LlamaRuntimeManager:
         while time.time() < deadline:
             ret_code = self.server_process.poll()
             if ret_code is not None:
-                err_msg = f"El proceso de llama-server se cerró inesperadamente (código {ret_code}). Revisa {llama_log_path}"
-                logger.error(err_msg)
-                raise RuntimeError(err_msg)
+                self.stop_server()
+                raise RuntimeError(f"llama-server cerró con código {ret_code}. Revisa {llama_log_path}")
             try:
                 r = requests.get(health_url, timeout=1.5)
                 if r.status_code == 200:
-                    logger.info(f"llama-server residente operativo en puerto {self.port} (PID {self.server_process.pid}).")
+                    logger.info(f"llama-server residente [{mode_lbl}] activo en puerto {self.port} (PID {self.server_process.pid}).")
                     if progress_cb:
-                        progress_cb("✓ Modelo cargado en memoria.")
+                        progress_cb(f"✓ Modelo cargado en memoria ({mode_lbl}).")
                     return
             except requests.RequestException:
                 pass
             time.sleep(0.5)
 
-        logger.error("Timeout esperando a que llama-server responda en /health.")
         self.stop_server()
-        raise TimeoutError(f"Tiempo de espera agotado al inicializar llama-server. Revisa {llama_log_path}")
+        raise TimeoutError(f"Timeout iniciando llama-server. Revisa {llama_log_path}")
 
     def stop_server(self) -> None:
-        """Detiene el proceso del servidor local y libera la memoria al cerrar la aplicación."""
         if self.server_process is not None:
             logger.info(f"Deteniendo llama-server (PID {self.server_process.pid})...")
             try:
@@ -400,7 +465,6 @@ class LlamaRuntimeManager:
         with_vision: bool = False,
         progress_cb: Optional[Callable[[str], None]] = None,
     ) -> str:
-        """Envía una petición de chat (texto o imagen+texto) reutilizando el servidor en memoria."""
         self.start_server(progress_cb=progress_cb)
 
         url = f"http://127.0.0.1:{self.port}/v1/chat/completions"
@@ -418,7 +482,6 @@ class LlamaRuntimeManager:
 
     @staticmethod
     def pil_image_to_base64_uri(image: Image.Image, max_side: int = 1600) -> str:
-        """Convierte una imagen PIL a Data URI base64 optimizada para visión."""
         img = image.convert("RGB")
         if max(img.size) > max_side:
             img.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
