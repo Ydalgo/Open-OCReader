@@ -10,8 +10,9 @@ from .formats.docx_builder import build_docx
 from .formats.excel_builder import build_excel
 from .formats.txt_builder import build_txt
 from .formats.json_builder import build_json
+from .gui import launch_gui, OpenOCReaderGUI
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "OCREngine",
     "OCRBox",
@@ -24,4 +25,6 @@ __all__ = [
     "build_excel",
     "build_txt",
     "build_json",
+    "launch_gui",
+    "OpenOCReaderGUI",
 ]

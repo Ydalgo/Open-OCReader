@@ -80,11 +80,25 @@ pip install -r requirements.txt
 
 ---
 
-## 💻 Uso desde la Terminal (CLI)
+## 💻 Uso desde la Terminal (CLI) e Interfaz Gráfica (GUI)
 
-Open OCReader ofrece una interfaz de línea de órdenes directa y flexible:
+Open OCReader ofrece tanto modo visual interactivo como ejecución rápida por consola:
 
-### 1. Uso estándar: convertir a PDF buscable
+### 1. Interfaz gráfica interactiva (GUI)
+Si ejecutas la herramienta **sin parámetros**, se abrirá automáticamente la ventana gráfica:
+```bash
+python ocr_tool.py
+```
+*(También puedes forzar la apertura visual con `python ocr_tool.py --gui`)*.
+
+La interfaz permite:
+- Seleccionar el fichero de entrada mediante un explorador de archivos nativo.
+- Elegir el formato deseado (PDF, DOCX, XLSX, TXT, JSON).
+- Definir la ruta de destino.
+- Ver la barra de progreso en segundo plano sin que la ventana se bloquee.
+- Abrir directamente el fichero generado o su carpeta contenedora al finalizar.
+
+### 2. Uso estándar por consola: convertir a PDF buscable
 ```bash
 # Genera 'documento_ocr.pdf' manteniendo el 100% del diseño original intacto
 python ocr_tool.py documento.png
@@ -145,11 +159,11 @@ print(f"Documento procesado con éxito en {resultado.elapsed_seconds:.2f} segund
 
 - [x] Integración del motor rápido de OCR en ONNX (`rapidocr-onnxruntime`)
 - [x] Generador de PDF "Sandwich" con posicionamiento exacto de coordenadas
-- [ ] Procesamiento por lotes y gestión de ficheros PDF multipágina
-- [ ] Detección automática de rejillas para generación avanzada de `.xlsx`
-- [ ] Reconstrucción fluida de párrafos en documentos `.docx`
+- [x] Gestión de ficheros PDF multipágina y renderizado de alta resolución
+- [x] Detección de celdas para generación de hojas de cálculo `.xlsx`
+- [x] Reconstrucción de párrafos y títulos en documentos `.docx`
+- [x] Interfaz gráfica de escritorio nativa interactiva (GUI)
 - [ ] Conector con IA local (Ollama / Llama.cpp / Qwen) para resúmenes y extracción a JSON
-- [ ] Interfaz gráfica de escritorio nativa (CustomTkinter / PyQt)
 
 ---
 

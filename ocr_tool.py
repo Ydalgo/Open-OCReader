@@ -13,7 +13,7 @@ Uso:
 import argparse
 import sys
 from pathlib import Path
-from open_ocreader import DocumentConverter, __version__
+from open_ocreader import DocumentConverter, launch_gui, __version__
 
 
 def main():
@@ -30,7 +30,16 @@ def main():
 
     parser.add_argument(
         "input_file",
-        help="Ruta al fichero de entrada (imágenes: JPG, PNG, TIFF, BMP, WebP o documentos PDF).",
+        nargs="?",
+        default=None,
+        help="Ruta al fichero de entrada (imágenes o PDF). Si se omite, abre la interfaz gráfica.",
+    )
+
+    parser.add_argument(
+        "-g",
+        "--gui",
+        action="store_true",
+        help="Forzar la apertura de la interfaz gráfica de usuario.",
     )
 
     parser.add_argument(
@@ -63,6 +72,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Si no se especificó fichero de entrada o se solicitó explícitamente --gui, abrir la interfaz visual
+    if not args.input_file or args.gui:
+        launch_gui()
+        sys.exit(0)
 
     input_path = Path(args.input_file)
     if not input_path.exists():
