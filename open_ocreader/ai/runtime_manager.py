@@ -45,9 +45,17 @@ class LlamaRuntimeManager:
         else:
             self.base_dir = Path(base_dir)
 
-        self.bin_root = self.base_dir / "bin"
-        self.models_dir = self.base_dir / "models"
         self.platform_key = self._detect_platform_key()
+
+        # Si corre desde dist/Open_OCReader/ y los modelos/binarios ya están en la raíz del proyecto, reutilizarlos
+        self.bin_root = self.base_dir / "bin"
+        if not self.bin_root.exists() and (self.base_dir.parent.parent / "bin").exists():
+            self.bin_root = self.base_dir.parent.parent / "bin"
+
+        self.models_dir = self.base_dir / "models"
+        if not self.models_dir.exists() and (self.base_dir.parent.parent / "models").exists():
+            self.models_dir = self.base_dir.parent.parent / "models"
+
         self.bin_dir = self.bin_root / self.platform_key
 
         self.server_process: Optional[subprocess.Popen] = None

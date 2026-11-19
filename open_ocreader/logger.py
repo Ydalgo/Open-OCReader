@@ -5,11 +5,24 @@ en ficheros rotativos dentro de la carpeta 'logs/'.
 """
 
 import logging
+import os
 import sys
 import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
+
+
+def ensure_standard_streams():
+    """
+    En aplicaciones sin consola (--windowed / pythonw.exe), sys.stdout y sys.stderr son None.
+    Librerías como tqdm o huggingface_hub fallan con AttributeError si intentan escribir en None.
+    """
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+        os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 
 def get_logs_dir() -> Path:
@@ -37,6 +50,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     Configura el logger principal con rotación de archivos (máx 5MB x 3 ficheros)
     y captura global de excepciones no controladas.
     """
+    ensure_standard_streams()
     logger = logging.getLogger("open_ocreader")
     if logger.handlers:
         return logger
