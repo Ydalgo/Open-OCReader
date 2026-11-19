@@ -7,7 +7,7 @@ import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 from .logger import get_logger, get_logs_dir, is_log_deletion_locked
 
 logger = get_logger("maintenance")
@@ -81,3 +81,87 @@ def clear_cache() -> Dict[str, int]:
 
     logger.info(f"Limpieza de caché completada ({deleted_items} elementos eliminados).")
     return {"deleted": deleted_items}
+
+
+def clean_and_reinstall(
+    clean_builds: bool = True,
+    reinstall_llama: bool = True,
+    reinstall_models: bool = False,
+    upgrade_deps: bool = True,
+    progress_cb=None,
+) -> Dict[str, Any]:
+    """
+    Limpia restos antiguos del proyecto (build/, dist/, *.spec, cachés) y
+    reinstala/actualiza los componentes seleccionados (llama.cpp, dependencias, modelos).
+    """
+    import subprocess
+    import sys
+    from .ai.runtime_manager import LlamaRuntimeManager
+
+    def notify(msg: str):
+        logger.info(msg)
+        if progress_cb:
+            progress_cb(msg)
+
+    rt = LlamaRuntimeManager.get_instance()
+    rt.stop_server()
+    root = rt.base_dir
+    summary: Dict[str, Any] = {"removed": [], "updated": []}
+
+    # 1. Limpiar cachés
+    notify("Limpiando cachés y temporales...")
+    clear_cache()
+
+    # 2. Limpiar compilaciones antiguas (build/, dist/, *.spec) — solo si no estamos corriendo desde dentro de dist/
+    if clean_builds and not getattr(sys, "frozen", False):
+        notify("Eliminando compilaciones antiguas (build/, dist/, *.spec)...")
+        for folder_name in ("build", "dist"):
+            target = root / folder_name
+            if target.exists():
+                try:
+                    shutil.rmtree(target)
+                    summary["removed"].append(folder_name + "/")
+                except Exception as e:
+                    logger.warning(f"No se pudo borrar {target}: {e}")
+        for spec_f in root.glob("*.spec"):
+            try:
+                spec_f.unlink()
+                summary["removed"].append(spec_f.name)
+            except Exception:
+                pass
+
+    # 3. Reinstalar/Actualizar binarios de llama.cpp (bin/)
+    if reinstall_llama:
+        notify("Limpiando binarios antiguos de llama.cpp y descargando la última versión oficial...")
+        if rt.bin_root.exists():
+            shutil.rmtree(rt.bin_root, ignore_errors=True)
+            summary["removed"].append("bin/")
+        rt.ensure_llama_binary(progress_cb=notify)
+        summary["updated"].append(f"llama.cpp ({rt.platform_key})")
+
+    # 4. Re-descargar modelos de IA si el usuario lo solicitó explícitamente
+    if reinstall_models:
+        notify("Re-descargando y verificando modelos GGUF (Qwen3-VL-4B-Instruct)...")
+        if rt.models_dir.exists():
+            shutil.rmtree(rt.models_dir, ignore_errors=True)
+            summary["removed"].append("models/")
+        rt.ensure_models(progress_cb=notify)
+        summary["updated"].append("Qwen3-VL-4B-Instruct (SHA-256 verificado)")
+
+    # 5. Actualizar dependencias de Python si corremos desde código fuente
+    req_file = root / "requirements.txt"
+    if upgrade_deps and not getattr(sys, "frozen", False) and req_file.exists():
+        notify("Actualizando librerías Python (requirements.txt)...")
+        res = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", str(req_file), "--upgrade"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if res.returncode == 0:
+            summary["updated"].append("Dependencias Python (requirements.txt)")
+        else:
+            logger.warning(f"pip install --upgrade devolvió código {res.returncode}: {res.stderr[:300]}")
+
+    notify("✓ Limpieza y reinstalación completadas con éxito.")
+    return summary

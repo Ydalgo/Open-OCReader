@@ -127,6 +127,7 @@ class OpenOCReaderGUI:
         tools_row.pack(side=tk.RIGHT)
         ttk.Button(tools_row, text="⚖️ Legal / IA", command=self._show_legal_compliance).pack(side=tk.LEFT, padx=2)
         ttk.Button(tools_row, text="🔄 Actualizar", command=self._check_updates_gui).pack(side=tk.LEFT, padx=2)
+        ttk.Button(tools_row, text="♻️ Limpiar/Reinstalar", command=self._open_clean_reinstall_dialog).pack(side=tk.LEFT, padx=2)
         ttk.Button(tools_row, text="🧹 Caché", command=self._clear_cache_gui).pack(side=tk.LEFT, padx=2)
         ttk.Button(tools_row, text="🗑️ Logs", command=self._clear_logs_gui).pack(side=tk.LEFT, padx=2)
         ttk.Button(tools_row, text="📋 Logs", command=self._open_logs).pack(side=tk.LEFT, padx=(2, 0))
@@ -863,29 +864,117 @@ class OpenOCReaderGUI:
 
     def _check_updates_gui(self):
         from . import __version__
+        from .ai import LlamaRuntimeManager
         from .updater import check_for_updates, apply_update
 
-        self.status_var.set("Consultando actualizaciones en GitHub...")
+        self.status_var.set("Consultando actualizaciones de código y llama.cpp en GitHub...")
 
         def worker():
             info = check_for_updates(__version__)
+            rt = LlamaRuntimeManager.get_instance()
+            llama_info = rt.check_llama_update()
+
             def on_result():
-                self.status_var.set(info.message)
-                if info.update_available:
+                llama_msg = (
+                    f"Motor llama.cpp: versión instalada '{llama_info['installed']}' → nueva '{llama_info['latest']}' disponible."
+                    if llama_info["update_available"]
+                    else f"Motor llama.cpp: al día ({llama_info['latest']})."
+                )
+                self.status_var.set(f"{info.message} | {llama_msg}")
+
+                if info.update_available or llama_info["update_available"]:
                     if messagebox.askyesno(
                         "Actualización disponible",
-                        f"{info.message}\n\n¿Deseas descargar y aplicar la actualización ahora sin perder tus modelos?",
+                        f"{info.message}\n{llama_msg}\n\n¿Deseas actualizar ahora sin perder tus modelos?",
                     ):
                         try:
-                            msg = apply_update()
-                            messagebox.showinfo("Actualizado", f"{msg}\n\nReinicia la aplicación para aplicar los cambios.")
+                            msgs = []
+                            if info.update_available:
+                                msgs.append(apply_update())
+                            if llama_info["update_available"]:
+                                from .maintenance import clean_and_reinstall
+                                clean_and_reinstall(
+                                    clean_builds=False,
+                                    reinstall_llama=True,
+                                    reinstall_models=False,
+                                    upgrade_deps=False,
+                                )
+                                msgs.append(f"✓ llama.cpp actualizado a {llama_info['latest']}.")
+                            messagebox.showinfo("Actualizado", "\n".join(msgs) + "\n\nReinicia la app para aplicar los cambios.")
                         except Exception as e:
                             messagebox.showerror("Error al actualizar", str(e))
                 else:
-                    messagebox.showinfo("Actualizaciones", info.message)
+                    messagebox.showinfo("Actualizaciones", f"{info.message}\n\n{llama_msg}")
             self.root.after(0, on_result)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _open_clean_reinstall_dialog(self):
+        """Ventana para limpiar compilaciones antiguas (build, dist, bin) y reinstalar limpiamente."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Limpiar Proyecto y Reinstalar Componentes")
+        dialog.geometry("500x310")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding="16")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text="Selecciona qué deseas limpiar y reinstalar:",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 10))
+
+        v_builds = tk.BooleanVar(value=True)
+        v_llama = tk.BooleanVar(value=True)
+        v_deps = tk.BooleanVar(value=True)
+        v_models = tk.BooleanVar(value=False)
+
+        ttk.Checkbutton(frame, text="Eliminar compilaciones antiguas (build/, dist/, *.spec) y cachés", variable=v_builds).pack(anchor="w", pady=3)
+        ttk.Checkbutton(frame, text="Reinstalar última versión oficial de llama.cpp (bin/) con parches", variable=v_llama).pack(anchor="w", pady=3)
+        ttk.Checkbutton(frame, text="Actualizar librerías Python (requirements.txt)", variable=v_deps).pack(anchor="w", pady=3)
+        ttk.Checkbutton(frame, text="Re-descargar y verificar modelos de IA (models/ ~2,9 GB)", variable=v_models).pack(anchor="w", pady=3)
+
+        status_lbl_var = tk.StringVar(value="Listo para limpiar y reinstalar.")
+        ttk.Label(frame, textvariable=status_lbl_var, font=("Segoe UI", 8), foreground="#444444", wraplength=460).pack(anchor="w", pady=(12, 6))
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill=tk.X, pady=(6, 0))
+
+        def run_clean():
+            btn_go.config(state=tk.DISABLED)
+            def worker():
+                try:
+                    from .maintenance import clean_and_reinstall
+                    res = clean_and_reinstall(
+                        clean_builds=v_builds.get(),
+                        reinstall_llama=v_llama.get(),
+                        reinstall_models=v_models.get(),
+                        upgrade_deps=v_deps.get(),
+                        progress_cb=lambda m: self.root.after(0, status_lbl_var.set, m),
+                    )
+                    def done():
+                        self.cached_doc_text = None
+                        self.cached_doc_key = None
+                        messagebox.showinfo(
+                            "Limpieza completada",
+                            f"Eliminado: {', '.join(res['removed']) or 'nada'}\n"
+                            f"Actualizado: {', '.join(res['updated']) or 'nada'}",
+                            parent=dialog,
+                        )
+                        dialog.destroy()
+                    self.root.after(0, done)
+                except Exception as e:
+                    logger.exception(f"Error en limpieza y reinstalación: {e}")
+                    self.root.after(0, lambda: messagebox.showerror("Error", str(e), parent=dialog))
+                    self.root.after(0, lambda: btn_go.config(state=tk.NORMAL))
+            threading.Thread(target=worker, daemon=True).start()
+
+        btn_go = ttk.Button(btn_row, text="♻️ Ejecutar limpieza y reinstalación", command=run_clean)
+        btn_go.pack(side=tk.LEFT)
+        ttk.Button(btn_row, text="Cancelar", command=dialog.destroy).pack(side=tk.RIGHT)
 
     @staticmethod
     def _open_path_crossplatform(path: str):

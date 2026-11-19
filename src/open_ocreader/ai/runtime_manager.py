@@ -247,10 +247,37 @@ class LlamaRuntimeManager:
         shutil.rmtree(extract_tmp, ignore_errors=True)
         archive_path.unlink(missing_ok=True)
 
+        # Guardar versión instalada para futuras comprobaciones de actualización
+        if tag_name:
+            try:
+                (self.bin_dir / "version.txt").write_text(str(tag_name), encoding="utf-8")
+            except Exception:
+                pass
+
         if progress_cb:
-            progress_cb(f"✓ llama.cpp ({target_key}) listo en {self.bin_dir}")
+            progress_cb(f"✓ llama.cpp ({target_key} - {tag_name}) listo en {self.bin_dir}")
 
         return self.server_executable
+
+    def check_llama_update(self) -> Dict[str, Any]:
+        """Comprueba si existe una versión más reciente de llama.cpp en GitHub Releases."""
+        version_file = self.bin_dir / "version.txt"
+        installed = version_file.read_text(encoding="utf-8").strip() if version_file.exists() else "desconocida"
+        try:
+            resp = requests.get(self.GITHUB_LLAMA_RELEASES_API, timeout=15)
+            resp.raise_for_status()
+            for rel in resp.json():
+                for asset in rel.get("assets", []):
+                    if f"-bin-{self.platform_key}." in asset["name"]:
+                        latest = rel.get("tag_name", "")
+                        return {
+                            "installed": installed,
+                            "latest": latest,
+                            "update_available": bool(latest and latest != installed),
+                        }
+        except Exception as e:
+            logger.warning(f"No se pudo consultar actualizaciones de llama.cpp: {e}")
+        return {"installed": installed, "latest": "error", "update_available": False}
 
     def ensure_models(
         self,

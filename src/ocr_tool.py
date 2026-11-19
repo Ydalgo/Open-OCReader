@@ -102,6 +102,7 @@ def main():
     parser.add_argument("-q", "--quiet", action="store_true", help="Modo silencioso.")
     parser.add_argument("--clear-logs", action="store_true", help="Limpia todos los archivos de log.")
     parser.add_argument("--clear-cache", action="store_true", help="Limpia cachés y archivos temporales.")
+    parser.add_argument("--clean-reinstall", action="store_true", help="Borra build/, dist/, bin/ y reinstala llama.cpp y dependencias.")
     parser.add_argument("--check-update", action="store_true", help="Comprueba si hay una nueva versión en GitHub.")
     parser.add_argument("--update", action="store_true", help="Actualiza el proyecto desde GitHub sin desinstalar.")
     parser.add_argument(
@@ -124,6 +125,12 @@ def main():
         from open_ocreader.governance import generate_governance_report
         out = generate_governance_report(args.governance_report)
         print(f"[Open OCReader] Informe de gobernanza IA generado en: {out}")
+        sys.exit(0)
+
+    if args.clean_reinstall:
+        from open_ocreader.maintenance import clean_and_reinstall
+        res = clean_and_reinstall(progress_cb=print)
+        print(f"[Open OCReader] Limpieza y reinstalación completada: {res}")
         sys.exit(0)
 
     if args.clear_logs:
