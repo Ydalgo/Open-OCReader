@@ -33,6 +33,7 @@ from .hardware import (
     HardwareProfile,
     find_free_port,
     get_hardware_profile,
+    has_enough_ram_for_embeddings,
     query_binary_help,
 )
 
@@ -48,48 +49,67 @@ class LlamaRuntimeManager:
     MODEL_FILENAME = "Qwen3VL-4B-Instruct-Q4_K_M.gguf"
     MMPROJ_FILENAME = "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"
 
-    # Hashes SHA-256 de referencia de los modelos oficiales (Qwen/Qwen3-VL-4B-Instruct-GGUF).
+    # Hashes SHA-256 oficiales verificados (Hugging Face LFS) de todos los modelos soportados.
     # Cualquier descarga (Hugging Face o GitHub) que no coincida se rechaza y se elimina.
     MODEL_SHA256 = {
+        # VLM Principal (Perfiles standard / pro — Apache 2.0)
         "Qwen3VL-4B-Instruct-Q4_K_M.gguf": "66358cb18bb6b3b1b6675aa412c7a88ef01d228f481184d13668e5201c730a0a",
         "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf": "30ba2c7dd3127a4561b6cba9d13d0f711c91bdb38742e2f56d73c8cb596bd06d",
+        # VLM Ligero (Perfiles light / ultra_light — Apache 2.0)
+        "Qwen3VL-2B-Instruct-Q4_K_M.gguf": "089d75c52f4b7ffc56ba998ffc50aae89fcafc755f9e7208aacca281dca6c2ae",
+        "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf": "f9a68fabba69c3b81e153367b2c7521030b0fa8bb0de400c9599c8e6725f9c82",
+        # Embeddings Multilingüe AST Híbrido (BAAI BGE-M3 — MIT)
+        "bge-m3-Q4_K_M.gguf": "6d39681b26c61279ac1f82db35a04a05009e94c415b51c858ff571489a82fc06",
     }
 
     _instance: Optional["LlamaRuntimeManager"] = None
 
     def __init__(self, base_dir: Optional[Path] = None, force_cpu: bool = False):
+        from ..paths import get_app_base_dir, resolve_asset_dir
+
         if base_dir is None:
-            if getattr(sys, "frozen", False):
-                self.base_dir = Path(sys.executable).resolve().parent
-            else:
-                self.base_dir = Path(__file__).resolve().parent.parent.parent.parent
+            self.base_dir = get_app_base_dir()
         else:
             self.base_dir = Path(base_dir)
 
         self.hw: HardwareProfile = get_hardware_profile(force_cpu=force_cpu)
         self.platform_key = self.hw.platform_asset_key
 
-        self.bin_root = self.base_dir / "bin"
-        if not self.bin_root.exists() and (self.base_dir.parent.parent / "bin").exists():
-            self.bin_root = self.base_dir.parent.parent / "bin"
+        # Vincular modelos VLM y Embeddings al perfil de hardware detectado
+        self.tier = self.hw.ai_tier
+        self.HF_REPO_ID = self.tier.vlm_repo
+        self.MODEL_FILENAME = self.tier.vlm_filename
+        self.MMPROJ_FILENAME = self.tier.mmproj_filename
 
-        self.models_dir = self.base_dir / "models"
-        if not self.models_dir.exists() and (self.base_dir.parent.parent / "models").exists():
-            self.models_dir = self.base_dir.parent.parent / "models"
+        if base_dir is None:
+            self.bin_root = resolve_asset_dir("bin")
+            self.models_dir = resolve_asset_dir("models")
+        else:
+            self.bin_root = self.base_dir / "bin"
+            self.models_dir = self.base_dir / "models"
 
         self.bin_dir = self.bin_root / self.platform_key
 
         self.server_process: Optional[subprocess.Popen] = None
         self.server_log_file = None
         self._api_key_file: Optional[Path] = None
-        # Clave aleatoria por sesión: ninguna web ni proceso ajeno puede usar el LLM local
         self._server_api_key = generate_token()
         self.port = 8089
+
+        # Servidor ligero de embeddings (CPU -ngl 0, puerto independiente, vinculado al perfil de hardware)
+        self.embed_process: Optional[subprocess.Popen] = None
+        self.embed_log_file = None
+        self.embed_port: int = 8095
+        self._embed_api_key = generate_token()
+        self._embed_api_key_file: Optional[Path] = None
+
         self.preferred_model_source = "official"  # 'official' | 'github'
 
         logger.info(
             f"LlamaRuntimeManager listo | SO: {self.hw.os_name} ({self.hw.arch}) | "
-            f"Backend: {self.hw.backend.upper()} ({self.platform_key}) | Núcleos: {self.hw.cpu_cores}"
+            f"RAM: {self.hw.ram_total_gb:.1f} GB ({self.hw.ram_available_gb:.1f} GB libres) | "
+            f"Backend: {self.hw.backend.upper()} | Perfil IA: {self.tier.tier_name.upper()} "
+            f"[{self.tier.vlm_label} + {self.tier.embed_label}]"
         )
         atexit.register(self.stop_server)
 
@@ -115,6 +135,48 @@ class LlamaRuntimeManager:
     def is_models_present(self) -> bool:
         """Comprueba si los ficheros del modelo Qwen3-VL ya existen localmente."""
         return self.model_path.exists() and self.mmproj_path.exists()
+
+    def check_portable_hardware_mismatch(self) -> Optional[str]:
+        """
+        Detecta si una copia portable (USB / intranet sin Internet) trae modelos o binarios
+        preparados para un hardware distinto al del equipo actual.
+        En entornos aislados (air-gapped), intenta reutilizar el modelo local disponible
+        y devuelve un aviso claro para el usuario.
+        """
+        warnings_list: List[str] = []
+
+        # 1. Comprobar si el modelo ideal del perfil falta pero existe otro modelo Qwen3-VL ya descargado
+        if self.tier.vlm_enabled and not self.is_models_present() and self.models_dir.exists():
+            alt_pairs = [
+                ("Qwen3VL-4B-Instruct-Q4_K_M.gguf", "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf", "Qwen3-VL-4B"),
+                ("Qwen3VL-2B-Instruct-Q4_K_M.gguf", "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf", "Qwen3-VL-2B"),
+            ]
+            for m_f, mm_f, lbl in alt_pairs:
+                if (self.models_dir / m_f).exists() and (self.models_dir / mm_f).exists():
+                    expected_lbl = self.tier.vlm_label
+                    self.MODEL_FILENAME = m_f
+                    self.MMPROJ_FILENAME = mm_f
+                    warnings_list.append(
+                        f"Copia portable adaptada a otro hardware: se encontró '{lbl}' en models/ "
+                        f"(este equipo recomienda '{expected_lbl}'). Se reutilizará en modo offline, "
+                        f"pero puede haber pérdida de rendimiento o memoria ajustada."
+                    )
+                    break
+
+        # 2. Comprobar si el binario de llama.cpp en bin/ corresponde a otro backend (ej. Vulkan vs CPU)
+        if self.tier.vlm_enabled and not self.server_executable.exists() and self.bin_root.exists():
+            other_bins = [p.name for p in self.bin_root.iterdir() if p.is_dir()]
+            if other_bins:
+                warnings_list.append(
+                    f"Binario de llama.cpp en bin/ preparado para {', '.join(other_bins)}, "
+                    f"pero este equipo requiere '{self.platform_key}'. Sin Internet, la IA puede fallar."
+                )
+
+        if warnings_list:
+            msg = "⚠️ Aviso portable/hardware distinto: " + " | ".join(warnings_list)
+            logger.warning(msg)
+            return msg
+        return None
 
     def is_ready(self) -> bool:
         """Comprueba si binario de llama.cpp y modelos existen localmente."""
@@ -431,7 +493,7 @@ class LlamaRuntimeManager:
 
     def start_server(
         self,
-        n_ctx: int = 8192,
+        n_ctx: Optional[int] = None,
         progress_cb: Optional[Callable[[str], None]] = None,
     ) -> None:
         """
@@ -439,8 +501,14 @@ class LlamaRuntimeManager:
         optimizaciones GuarIdA y permanencia residente en memoria.
         Si la GPU falla al inicializar, hace fallback automático a CPU.
         """
+        if n_ctx is None:
+            n_ctx = self.tier.recommended_n_ctx
         if self.server_process is not None and self.server_process.poll() is None:
             return
+
+        # Modo instancia única para llama-server: cerrar procesos huérfanos si no tenemos ya el servidor de embeddings activo
+        if self.embed_process is None or self.embed_process.poll() is not None:
+            self._kill_orphan_llama_servers()
 
         self.ensure_llama_binary(source=self.preferred_model_source, progress_cb=progress_cb)
         self.ensure_models(source=self.preferred_model_source, progress_cb=progress_cb)
@@ -477,7 +545,12 @@ class LlamaRuntimeManager:
 
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         llama_log_path = get_logs_dir() / "llama_server.log"
-        self.server_log_file = open(llama_log_path, "a", encoding="utf-8", errors="replace")
+        try:
+            self.server_log_file = open(llama_log_path, "a", encoding="utf-8", errors="replace")
+        except PermissionError:
+            import tempfile
+            llama_log_path = Path(tempfile.gettempdir()) / f"llama_server_{os.getpid()}.log"
+            self.server_log_file = open(llama_log_path, "a", encoding="utf-8", errors="replace")
 
         self.server_process = subprocess.Popen(
             cmd,
@@ -508,7 +581,205 @@ class LlamaRuntimeManager:
         self.stop_server()
         raise TimeoutError(f"Timeout iniciando llama-server. Revisa {llama_log_path}")
 
+    @staticmethod
+    def _kill_orphan_llama_servers() -> None:
+        """Cierra cualquier instancia huérfana de llama-server para garantizar modo instancia única."""
+        try:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/IM", "llama-server.exe"],
+                    capture_output=True,
+                    check=False,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+            else:
+                subprocess.run(["pkill", "-f", "llama-server"], capture_output=True, check=False)
+            time.sleep(0.35)
+        except Exception:
+            pass
+
+    @property
+    def embed_model_path(self) -> Optional[Path]:
+        if not self.tier.embed_enabled or not self.tier.embed_filename:
+            return None
+        return self.models_dir / self.tier.embed_filename
+
+    def ensure_embed_model(self, progress_cb: Optional[Callable[[str], None]] = None) -> Optional[Path]:
+        """Descarga y verifica con SHA-256 el modelo de embeddings BGE-M3 si no existe localmente."""
+        emb_p = self.embed_model_path
+        if emb_p is None:
+            return None
+
+        expected_sha = self.MODEL_SHA256.get(self.tier.embed_filename, "")
+        if emb_p.exists() and emb_p.stat().st_size > 10 * 1024 * 1024:
+            if not expected_sha:
+                return emb_p
+            try:
+                verify_sha256(emb_p, expected_sha)
+                return emb_p
+            except SecurityError:
+                logger.warning(f"Integridad SHA-256 inválida en {emb_p.name}; re-descargando...")
+                emb_p.unlink(missing_ok=True)
+
+        self.models_dir.mkdir(parents=True, exist_ok=True)
+        if progress_cb:
+            progress_cb(f"Descargando modelo de embeddings '{self.tier.embed_label}' ({self.tier.embed_filename})...")
+        try:
+            hf_hub_download(
+                repo_id=self.tier.embed_repo,
+                filename=self.tier.embed_filename,
+                local_dir=str(self.models_dir),
+            )
+            if emb_p.exists() and expected_sha:
+                verify_sha256(emb_p, expected_sha)
+            return emb_p if emb_p.exists() else None
+        except Exception as e:
+            logger.warning(f"No se pudo descargar/verificar el modelo de embeddings ({self.tier.embed_filename}): {e}")
+            return None
+
+    def stop_embed_server(self) -> None:
+        if self.embed_process is not None:
+            try:
+                self.embed_process.terminate()
+                self.embed_process.wait(timeout=4)
+            except Exception:
+                try:
+                    self.embed_process.kill()
+                except Exception:
+                    pass
+            finally:
+                self.embed_process = None
+        if self.embed_log_file is not None:
+            try:
+                self.embed_log_file.close()
+            except Exception:
+                pass
+            self.embed_log_file = None
+        if self._embed_api_key_file is not None:
+            try:
+                self._embed_api_key_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+            self._embed_api_key_file = None
+
+    def _start_embed_server(self, progress_cb: Optional[Callable[[str], None]] = None) -> bool:
+        """Arranca un servidor llama-server --embedding ligero en CPU (-ngl 0) sin tocar la VRAM."""
+        if self.embed_process is not None and self.embed_process.poll() is None:
+            return True
+        if not self.tier.embed_enabled:
+            return False
+        if not has_enough_ram_for_embeddings(min_free_gb=1.2):
+            logger.info("RAM libre insuficiente (<1.2 GB) para embeddings; usando BM25+AST puro.")
+            return False
+
+        self.ensure_llama_binary(source=self.preferred_model_source, progress_cb=progress_cb)
+        emb_path = self.ensure_embed_model(progress_cb=progress_cb)
+        if emb_path is None or not emb_path.exists():
+            return False
+
+        self.embed_port = find_free_port(preferred=8095)
+        self._embed_api_key_file = write_private_secret_file(self._embed_api_key, prefix="llama_emb_key_")
+
+        cmd = [
+            str(self.server_executable),
+            "-m", str(emb_path),
+            "--embedding",
+            "--pooling", "mean",
+            "--host", "127.0.0.1",
+            "--port", str(self.embed_port),
+            "-c", "2048",
+            "-ngl", "0",
+            "-t", str(max(2, min(4, self.hw.cpu_cores - 1))),
+            "--no-webui",
+            "--api-key-file", str(self._embed_api_key_file),
+        ]
+
+        import tempfile
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        emb_log = Path(tempfile.gettempdir()) / f"llama_embed_{os.getpid()}.log"
+        self.embed_log_file = open(emb_log, "a", encoding="utf-8", errors="replace")
+
+        if progress_cb:
+            progress_cb(f"Cargando modelo de embeddings '{self.tier.embed_label}' en CPU...")
+
+        self.embed_process = subprocess.Popen(
+            cmd,
+            stdout=self.embed_log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+        )
+
+        health_url = f"http://127.0.0.1:{self.embed_port}/health"
+        deadline = time.time() + 45.0
+        while time.time() < deadline:
+            if self.embed_process.poll() is not None:
+                self.stop_embed_server()
+                return False
+            try:
+                r = requests.get(health_url, timeout=1.0)
+                if r.status_code == 200:
+                    return True
+            except requests.RequestException:
+                pass
+            time.sleep(0.35)
+
+        self.stop_embed_server()
+        return False
+
+    def embed_texts(
+        self,
+        texts: List[str],
+        progress_cb: Optional[Callable[[str], None]] = None,
+    ) -> Optional[List[List[float]]]:
+        """
+        Calcula embeddings vectoriales para una lista de textos usando el modelo
+        vinculado al perfil de hardware. Si no hay memoria suficiente o falla,
+        devuelve None de forma segura para que el AST use BM25 puro.
+        """
+        if not texts or not self.tier.embed_enabled:
+            return None
+
+        if not self._start_embed_server(progress_cb=progress_cb):
+            return None
+
+        url = f"http://127.0.0.1:{self.embed_port}/v1/embeddings"
+        headers = {"Authorization": f"Bearer {self._embed_api_key}"}
+        vectors: List[List[float]] = []
+
+        try:
+            # Procesar en mini-lotes de 16 con progreso en tiempo real
+            total_t = len(texts)
+            for i in range(0, total_t, 16):
+                batch = [t[:1400] for t in texts[i : i + 16]]
+                if progress_cb and total_t > 16:
+                    done_n = min(i + len(batch), total_t)
+                    pct = int((done_n / total_t) * 100)
+                    progress_cb(
+                        f"⏳ Vectorizando con BGE-M3: {done_n}/{total_t} nodos ({pct}%) — ten paciencia, se guarda en caché SHA-256..."
+                    )
+                resp = requests.post(
+                    url,
+                    json={"model": self.tier.embed_filename, "input": batch},
+                    headers=headers,
+                    timeout=60,
+                )
+                if resp.status_code >= 400:
+                    logger.warning(f"Error embeddings HTTP {resp.status_code}: {resp.text[:200]}")
+                    return None
+                data = resp.json().get("data", [])
+                data.sort(key=lambda item: item.get("index", 0))
+                for item in data:
+                    vectors.append(item["embedding"])
+            return vectors if len(vectors) == len(texts) else None
+        except Exception as e:
+            logger.warning(f"Fallo calculando embeddings (respaldo BM25 activo): {e}")
+            return None
+        finally:
+            if not self.tier.embed_keep_resident:
+                self.stop_embed_server()
+
     def stop_server(self) -> None:
+        self.stop_embed_server()
         if self.server_process is not None:
             logger.info(f"Deteniendo llama-server (PID {self.server_process.pid})...")
             try:
@@ -546,15 +817,67 @@ class LlamaRuntimeManager:
 
         url = f"http://127.0.0.1:{self.port}/v1/chat/completions"
         headers = {"Authorization": f"Bearer {self._server_api_key}"}
+        safe_max_tokens = max(256, min(int(max_tokens), 4096))
         payload = {
             "model": "qwen3-vl-4b",
             "messages": messages,
-            "max_tokens": max_tokens,
+            "max_tokens": safe_max_tokens,
             "temperature": temperature,
+            "cache_prompt": True,
+            "stream": True,
         }
 
-        resp = requests.post(url, json=payload, headers=headers, timeout=180)
-        resp.raise_for_status()
+        if progress_cb:
+            progress_cb("⏳ Evaluando contexto en Qwen3-VL (preparando respuesta)...")
+
+        t0 = time.perf_counter()
+        resp = requests.post(url, json=payload, headers=headers, timeout=240, stream=True)
+        if resp.status_code >= 400:
+            err_detail = resp.text[:500]
+            try:
+                err_json = resp.json()
+                if isinstance(err_json, dict):
+                    err_obj = err_json.get("error", err_json)
+                    err_detail = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+            except Exception:
+                pass
+            raise RuntimeError(f"Error de llama-server (HTTP {resp.status_code}): {err_detail}")
+
+        import json
+        chunks: List[str] = []
+        token_count = 0
+        last_notify = 0.0
+
+        content_type = (resp.headers.get("content-type") or "").lower()
+        if "text/event-stream" in content_type:
+            resp.encoding = "utf-8"
+            for raw_bytes in resp.iter_lines(decode_unicode=False):
+                if not raw_bytes:
+                    continue
+                line = raw_bytes.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    ev = json.loads(data_str)
+                    delta = ev.get("choices", [{}])[0].get("delta", {})
+                    piece = delta.get("content") or ""
+                    if piece:
+                        chunks.append(piece)
+                        token_count += 1
+                        now = time.perf_counter()
+                        if progress_cb and (now - last_notify >= 0.45):
+                            last_notify = now
+                            progress_cb(
+                                f"✍️ Generando respuesta con Qwen3-VL... {token_count} tokens ({now - t0:.0f}s)"
+                            )
+                except Exception:
+                    continue
+            return "".join(chunks).strip()
+
+        # Respaldo si el servidor devolvió JSON no-streaming
         data = resp.json()
         return data["choices"][0]["message"]["content"].strip()
 

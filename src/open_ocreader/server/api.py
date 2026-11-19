@@ -90,22 +90,17 @@ def _save_upload_to_temp(upload: UploadFile) -> Path:
         raise HTTPException(status_code=500, detail="Error interno al recibir el fichero.")
 
 
-def _extract_document_text(file_path: Path, handwriting: bool = False) -> str:
-    pages = DocumentLoader.load_pages(str(file_path))
-    texts = []
-    if handwriting:
-        from ..ai import HandwritingOCREngine, LlamaRuntimeManager
-        runtime = LlamaRuntimeManager.get_instance()
-        hw = HandwritingOCREngine(runtime)
-        for p in pages:
-            texts.append(hw.transcribe_image(p.image))
-    else:
-        ocr = OCREngine.get_instance()
-        for p in pages:
-            boxes = ocr.process_image(p.image)
-            lines = _group_boxes_into_lines(boxes)
-            texts.append("\n".join(" ".join(b.text for b in line) for line in lines))
-    return iter_safe_lines(texts, max_chars=200_000).strip()
+def _extract_document_text(file_path: Path, handwriting: bool = False, force_ocr: bool = False) -> str:
+    text, _stats = DocumentLoader.extract_text_smart(
+        str(file_path),
+        handwriting=handwriting,
+        force_ocr=force_ocr,
+    )
+    return text[:250_000].strip()
+
+
+def _is_pdf_tools_disabled() -> bool:
+    return os.environ.get("OPEN_OCREADER_DISABLE_PDF_TOOLS", "").strip().lower() in {"1", "true", "yes"}
 
 
 def _verify_api_key(
@@ -173,12 +168,17 @@ def create_app() -> FastAPI:
             "status": "ok",
             "version": __version__,
             "auth_required": bool(os.environ.get("OPEN_OCREADER_API_KEY", "").strip()),
+            "pdf_tools_enabled": not _is_pdf_tools_disabled(),
             "hardware": {
                 "os": rt.hw.os_name,
                 "arch": rt.hw.arch,
                 "backend": rt.hw.backend,
                 "cpu_cores": rt.hw.cpu_cores,
+                "ram_total_gb": rt.hw.ram_total_gb,
                 "has_vulkan": rt.hw.has_vulkan,
+                "ai_tier": rt.tier.tier_name,
+                "vlm_model": rt.tier.vlm_label,
+                "embed_model": rt.tier.embed_label,
             },
             "ai_models_ready": rt.is_models_present(),
         }
@@ -193,6 +193,9 @@ def create_app() -> FastAPI:
         background_tasks: BackgroundTasks,
         file: UploadFile = File(...),
         format: str = Form("pdf"),
+        force_ocr: bool = Form(False),
+        compression: str = Form("high"),
+        grayscale: bool = Form(False),
     ):
         fmt = format.lower().lstrip(".")
         if fmt not in DocumentConverter.SUPPORTED_FORMATS:
@@ -202,12 +205,21 @@ def create_app() -> FastAPI:
             )
 
         in_path = _save_upload_to_temp(file)
-        out_path = in_path.parent / f"{in_path.stem}_ocr.{fmt}"
+        ext = "pdf" if fmt == "pdfa" else fmt
+        out_path = in_path.parent / f"{in_path.stem}_ocr.{ext}"
         background_tasks.add_task(_cleanup_paths, in_path.parent)
 
         try:
             logger.info(f"[API] Convirtiendo '{in_path.name}' -> {fmt}")
-            DocumentConverter().convert(str(in_path), str(out_path), fmt, verbose=False)
+            DocumentConverter().convert(
+                str(in_path),
+                str(out_path),
+                fmt,
+                verbose=False,
+                force_ocr=force_ocr,
+                pdf_compression=compression,
+                grayscale=grayscale,
+            )
             return FileResponse(
                 path=str(out_path),
                 filename=out_path.name,
@@ -286,6 +298,7 @@ def create_app() -> FastAPI:
         background_tasks: BackgroundTasks,
         file: UploadFile = File(...),
         mask_style: str = Form("tags"),
+        use_llm: bool = Form(True),
         handwriting: bool = Form(False),
     ):
         from ..ai import DocumentAnonymizer, LlamaRuntimeManager
@@ -294,9 +307,17 @@ def create_app() -> FastAPI:
         in_path = _save_upload_to_temp(file)
         background_tasks.add_task(_cleanup_paths, in_path.parent)
         try:
+            rt = LlamaRuntimeManager.get_instance()
+            effective_llm = use_llm and rt.tier.vlm_enabled
             text = _extract_document_text(in_path, handwriting=handwriting)
-            anonymized = DocumentAnonymizer(LlamaRuntimeManager.get_instance()).anonymize(text, mask_style=mask_style)
-            return JSONResponse({"filename": in_path.name, "anonymized_text": anonymized})
+            anonymized = DocumentAnonymizer(rt).anonymize(
+                text, mask_style=mask_style, use_llm=effective_llm
+            )
+            return JSONResponse({
+                "filename": in_path.name,
+                "used_llm": effective_llm,
+                "anonymized_text": anonymized,
+            })
         except SecurityError as se:
             raise HTTPException(status_code=400, detail=str(se))
         except Exception as e:
@@ -328,6 +349,45 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.exception(f"[API] Error en ask: {e}")
             raise HTTPException(status_code=500, detail="Error interno al procesar la pregunta.")
+
+    @api.post("/api/v1/pdf/{action}", dependencies=[Depends(_verify_api_key)])
+    def pdf_tool_endpoint(
+        action: str,
+        background_tasks: BackgroundTasks,
+        file: UploadFile = File(...),
+        password: str = Form(""),
+        watermark_text: str = Form(""),
+        clean_scan: bool = Form(False),
+        compression: str = Form("balanced"),
+        grayscale: bool = Form(False),
+        pdfa: bool = Form(False),
+    ):
+        if _is_pdf_tools_disabled():
+            raise HTTPException(status_code=403, detail="Herramientas PDF deshabilitadas por política ENS.")
+        from ..pdf_tools import optimize_pdf, remove_signatures, remove_watermarks, unlock_pdf
+
+        in_path = _save_upload_to_temp(file)
+        background_tasks.add_task(_cleanup_paths, in_path.parent)
+        try:
+            if action == "unlock":
+                res = unlock_pdf(str(in_path), password=password)
+            elif action == "remove-signatures":
+                res = remove_signatures(str(in_path))
+            elif action == "remove-watermarks":
+                res = remove_watermarks(str(in_path), watermark_text=watermark_text, clean_scan_watermark=clean_scan)
+            elif action == "optimize":
+                res = optimize_pdf(str(in_path), compression=compression, grayscale=grayscale, pdfa=pdfa)
+            else:
+                raise HTTPException(status_code=400, detail=f"Acción PDF no válida: {action}")
+            out_p = Path(res["output_path"])
+            return FileResponse(path=str(out_p), filename=out_p.name, media_type="application/pdf")
+        except HTTPException:
+            raise
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            logger.exception(f"[API] Error en herramienta PDF '{action}': {e}")
+            raise HTTPException(status_code=500, detail="Error interno procesando el PDF.")
 
     return api
 

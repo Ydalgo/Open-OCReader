@@ -1,11 +1,11 @@
 """
 Script de compilación multi-compilador para Open OCReader (Nuitka nativo C/C++ o PyInstaller).
-Permite compilar tanto la aplicación de escritorio (GUI) como el servidor API REST.
+Muestra fases detalladas, progreso en tiempo real, tiempo transcurrido y tiempo restante estimado (ETA).
 
 Uso:
     python scripts/windows/build_exe.py                        (GUI con Nuitka si está disponible, o PyInstaller)
-    python scripts/windows/build_exe.py --compiler pyinstaller (Forzar PyInstaller)
-    python scripts/windows/build_exe.py --compiler nuitka      (Forzar Nuitka: compilación nativa C y ofuscación)
+    python scripts/windows/build_exe.py --compiler pyinstaller (Compilación rápida ~1-2 min)
+    python scripts/windows/build_exe.py --compiler nuitka      (Compilación nativa C ~10-25 min)
     python scripts/windows/build_exe.py --target server        (Compilar Open_OCReader_Server.exe)
     python scripts/windows/build_exe.py --onefile              (Un único archivo ejecutable portátil)
 """
@@ -13,11 +13,115 @@ Uso:
 import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
+
+
+def _fmt_duration(seconds: float) -> str:
+    sec = max(0, int(round(seconds)))
+    mins, rem = divmod(sec, 60)
+    hrs, mins = divmod(mins, 60)
+    if hrs > 0:
+        return f"{hrs:02d}:{mins:02d}:{rem:02d}"
+    return f"{mins:02d}:{rem:02d}"
+
+
+def _run_with_progress(cmd, cwd: str, env: Optional[dict], compiler: str) -> int:
+    """
+    Ejecuta el compilador leyendo la salida en tiempo real e imprimiendo fase actual,
+    porcentaje, tiempo transcurrido y tiempo restante estimado (ETA).
+    """
+    start_t = time.perf_counter()
+    c_phase_start: Optional[float] = None
+    last_phase = ""
+
+    # Patrones de progreso de Nuitka y PyInstaller
+    re_nuitka_pass = re.compile(r"PASS\s+(\d+):", re.IGNORECASE)
+    re_nuitka_scons = re.compile(r"Backend C:\s*(\d+(?:\.\d+)?)%.*?(\d+)/(\d+)", re.IGNORECASE)
+    re_nuitka_done = re.compile(r"Successfully created", re.IGNORECASE)
+    re_pyi_step = re.compile(r"INFO:\s*(Analyzing|Processing|Building|Copying|Appending|Checking|Loading)", re.IGNORECASE)
+
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+
+    assert proc.stdout is not None
+    pyi_stages = {
+        "Analyzing": (1, 4, "Analizando dependencias y módulos"),
+        "Loading": (1, 4, "Cargando hooks y paquetes"),
+        "Processing": (2, 4, "Procesando recursos y binarios"),
+        "Copying": (3, 4, "Copiando librerías y datos"),
+        "Building": (3, 4, "Construyendo ejecutable y paquetes"),
+        "Appending": (4, 4, "Empaquetando ejecutable final"),
+    }
+
+    for raw_line in proc.stdout:
+        line = raw_line.rstrip("\r\n")
+        elapsed = time.perf_counter() - start_t
+        elapsed_str = _fmt_duration(elapsed)
+
+        if compiler == "nuitka":
+            m_scons = re_nuitka_scons.search(line)
+            if m_scons:
+                pct = float(m_scons.group(1))
+                done_c = int(m_scons.group(2))
+                total_c = int(m_scons.group(3))
+                if c_phase_start is None:
+                    c_phase_start = time.perf_counter()
+                c_elapsed = time.perf_counter() - c_phase_start
+                eta_str = "calculando..."
+                if done_c >= 3 and total_c > done_c:
+                    rate = c_elapsed / done_c
+                    eta_str = _fmt_duration(rate * (total_c - done_c))
+                print(
+                    f"[{elapsed_str}] [Fase 3/4 Compilación C] {done_c}/{total_c} ({pct:.1f}%) "
+                    f"| Restante aprox.: ~{eta_str}",
+                    flush=True,
+                )
+                continue
+
+            m_pass = re_nuitka_pass.search(line)
+            if m_pass:
+                pnum = m_pass.group(1)
+                print(f"[{elapsed_str}] [Fase 1/4 Análisis Python - PASS {pnum}] {line}", flush=True)
+                continue
+
+            if "Generating C source code" in line or "C source code" in line:
+                print(f"[{elapsed_str}] [Fase 2/4 Generación código C] {line}", flush=True)
+                continue
+
+            if "Standalone" in line or "Onefile" in line or re_nuitka_done.search(line):
+                print(f"[{elapsed_str}] [Fase 4/4 Empaquetado] {line}", flush=True)
+                continue
+
+            # Mostrar líneas relevantes sin inundar con líneas vacías
+            if line.strip():
+                print(f"[{elapsed_str}] {line}", flush=True)
+        else:
+            m_pyi = re_pyi_step.search(line)
+            if m_pyi:
+                kw = m_pyi.group(1)
+                step_i, step_tot, desc = pyi_stages.get(kw, (2, 4, "Compilando"))
+                if desc != last_phase:
+                    last_phase = desc
+                    print(f"[{elapsed_str}] [Fase {step_i}/{step_tot}] {desc}...", flush=True)
+            if line.strip() and ("ERROR" in line or "WARNING" in line or "completed successfully" in line.lower() or "Building" in line):
+                print(f"[{elapsed_str}] {line}", flush=True)
+
+    return proc.wait()
 
 
 def find_signtool() -> Optional[Path]:
@@ -93,11 +197,17 @@ def build_with_nuitka(base_dir: Path, src_dir: Path, target: str, onefile: bool)
         "nuitka",
         "--standalone",
         "--assume-yes-for-downloads",
+        "--show-progress",
         f"--output-dir={dist_dir}",
         f"--output-filename={out_name}.exe",
         "--include-package=open_ocreader",
         "--include-package=rapidocr_onnxruntime",
         "--include-package=pypdfium2",
+        "--include-package=pikepdf",
+        "--include-package=pymupdf",
+        "--include-package=fitz",
+        "--include-package=pdf2docx",
+        "--include-package=psutil",
         "--include-package-data=rapidocr_onnxruntime",
         "--include-package-data=pypdfium2",
         "--nofollow-import-to=torch,torchvision,transformers,scipy,matplotlib,pandas,IPython,pytest,notebook",
@@ -129,17 +239,16 @@ def build_with_nuitka(base_dir: Path, src_dir: Path, target: str, onefile: bool)
 
     cmd.append(str(entry))
 
-    env_path = str(src_dir)
-    import os
     env = os.environ.copy()
-    env["PYTHONPATH"] = env_path + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(src_dir) + os.pathsep + env.get("PYTHONPATH", "")
 
-    print(f"Compilando '{out_name}' con Nuitka (C nativo + optimización + ofuscación)...")
-    result = subprocess.run(cmd, cwd=str(base_dir), env=env)
-    if result.returncode != 0:
-        sys.exit(result.returncode)
+    print(f"Compilando '{out_name}' con Nuitka (C nativo + optimización).")
+    print("Duración habitual: ~10-25 minutos. (Usa '--compiler pyinstaller' para compilar en ~1-2 min).")
+    print("-" * 65)
+    rc = _run_with_progress(cmd, cwd=str(base_dir), env=env, compiler="nuitka")
+    if rc != 0:
+        sys.exit(rc)
 
-    # Normalizar carpeta destino de Nuitka (<entry>.dist -> dist/<out_name>)
     nuitka_dist = dist_dir / f"{entry.stem}.dist"
     final_dist = dist_dir / out_name
     if not onefile and nuitka_dist.exists():
@@ -162,15 +271,28 @@ def build_with_pyinstaller(base_dir: Path, src_dir: Path, target: str, onefile: 
         f"--name={out_name}",
         "--collect-all=rapidocr_onnxruntime",
         "--collect-all=pypdfium2",
+        "--collect-all=pikepdf",
+        "--collect-all=pymupdf",
+        "--collect-all=fitz",
         "--hidden-import=PIL",
         "--hidden-import=cv2",
         "--hidden-import=pypdf",
+        "--hidden-import=pikepdf",
+        "--hidden-import=pymupdf",
+        "--hidden-import=fitz",
+        "--hidden-import=pdf2docx",
+        "--hidden-import=psutil",
         "--hidden-import=reportlab",
         "--hidden-import=docx",
         "--hidden-import=openpyxl",
         "--hidden-import=requests",
         "--hidden-import=huggingface_hub",
+        "--hidden-import=open_ocreader.paths",
         "--hidden-import=open_ocreader.ai",
+        "--hidden-import=open_ocreader.ai.doc_tree",
+        "--hidden-import=open_ocreader.ai.doc_cache",
+        "--hidden-import=open_ocreader.ai.multi_doc_chat",
+        "--hidden-import=open_ocreader.pdf_tools",
         "--exclude-module=torch",
         "--exclude-module=torchvision",
         "--exclude-module=transformers",
@@ -199,10 +321,11 @@ def build_with_pyinstaller(base_dir: Path, src_dir: Path, target: str, onefile: 
 
     cmd.append(str(entry))
 
-    print(f"Compilando '{out_name}' con PyInstaller...")
-    result = subprocess.run(cmd, cwd=str(base_dir))
-    if result.returncode != 0:
-        sys.exit(result.returncode)
+    print(f"Compilando '{out_name}' con PyInstaller (modo rápido: ~1-2 minutos)...")
+    print("-" * 65)
+    rc = _run_with_progress(cmd, cwd=str(base_dir), env=None, compiler="pyinstaller")
+    if rc != 0:
+        sys.exit(rc)
 
 
 def main():
@@ -211,7 +334,7 @@ def main():
         "--compiler",
         choices=["auto", "nuitka", "pyinstaller"],
         default="auto",
-        help="Compilador a utilizar ('auto' usa Nuitka si está disponible).",
+        help="Compilador a utilizar ('auto' usa Nuitka si está disponible; 'pyinstaller' compila en ~1-2 min).",
     )
     parser.add_argument(
         "--target",
@@ -232,6 +355,7 @@ def main():
     if compiler == "auto":
         compiler = "nuitka" if has_nuitka() else "pyinstaller"
 
+    total_start = time.perf_counter()
     print("=" * 65)
     print(f" Compilador: {compiler.upper()} | Objetivo: {args.target.upper()}")
     print("=" * 65)
@@ -249,8 +373,9 @@ def main():
 
     write_sha256_manifest(exe_path)
 
+    total_elapsed = _fmt_duration(time.perf_counter() - total_start)
     print("\n" + "=" * 65)
-    print(f"OK! Compilación finalizada: {exe_path}")
+    print(f"OK! Compilación finalizada en {total_elapsed}: {exe_path}")
     print("=" * 65)
 
 

@@ -30,33 +30,21 @@ def hide_console_window():
             pass
 
 
-def extract_full_text(input_path: Path, handwriting: bool = False, verbose: bool = True) -> str:
-    """Extrae el texto completo del documento (con RapidOCR o Qwen3-VL si es manuscrito)."""
-    pages = DocumentLoader.load_pages(str(input_path))
-    if not pages:
-        return ""
-
-    texts = []
-    if handwriting:
-        from open_ocreader.ai import HandwritingOCREngine, LlamaRuntimeManager
-        runtime = LlamaRuntimeManager.get_instance()
-        hw_engine = HandwritingOCREngine(runtime)
-        cb = print if verbose else None
-        for page in pages:
-            if verbose:
-                print(f"[Open OCReader IA] Leyendo manuscrito página {page.page_number}/{len(pages)}...")
-            t = hw_engine.transcribe_image(page.image, progress_cb=cb)
-            texts.append(t)
-    else:
-        from open_ocreader.formats.docx_builder import _group_boxes_into_lines
-        engine = OCREngine.get_instance()
-        for page in pages:
-            boxes = engine.process_image(page.image)
-            lines = _group_boxes_into_lines(boxes)
-            page_text = "\n".join(" ".join(b.text for b in line) for line in lines)
-            texts.append(page_text)
-
-    return "\n\n".join(texts).strip()
+def extract_full_text(
+    input_path: Path,
+    handwriting: bool = False,
+    force_ocr: bool = False,
+    verbose: bool = True,
+) -> str:
+    """Extrae el texto completo del documento (texto nativo si es PDF buscable, o OCR/Qwen3-VL)."""
+    cb = print if verbose else None
+    text, _stats = DocumentLoader.extract_text_smart(
+        str(input_path),
+        handwriting=handwriting,
+        force_ocr=force_ocr,
+        progress_cb=cb,
+    )
+    return text
 
 
 def main():
@@ -78,10 +66,18 @@ def main():
     parser.add_argument(
         "-f",
         "--format",
-        choices=["pdf", "docx", "xlsx", "txt", "json"],
+        choices=["pdf", "pdfa", "docx", "odt", "xlsx", "ods", "csv", "epub", "txt", "json"],
         default="pdf",
         help="Formato de exportación deseado (por defecto: 'pdf').",
     )
+    parser.add_argument("--force-ocr", action="store_true", help="Fuerza OCR aunque el PDF ya tenga texto buscable.")
+    parser.add_argument(
+        "--compression",
+        choices=["high", "balanced", "compact"],
+        default="high",
+        help="Nivel de compresión para salida PDF/PDF/A (high, balanced, compact).",
+    )
+    parser.add_argument("--grayscale", action="store_true", help="Convierte imágenes/fondos a escala de grises en PDF/PDF/A.")
     parser.add_argument(
         "-m",
         "--handwriting",
@@ -106,7 +102,7 @@ def main():
     )
     parser.add_argument(
         "--lang",
-        choices=["es", "en", "fr", "de", "pt", "it"],
+        choices=["es", "en", "sv", "fr", "de", "pt", "it"],
         default="es",
         help="Idioma de respuesta de la IA para resúmenes y preguntas (por defecto: 'es').",
     )
@@ -180,7 +176,12 @@ def main():
         # Caso 1: Modo IA Semántica o Manuscrito puro a texto/IA
         if args.ai or args.handwriting:
             cb = print if verbose else None
-            text = extract_full_text(input_path, handwriting=args.handwriting, verbose=verbose)
+            text = extract_full_text(
+                input_path,
+                handwriting=args.handwriting,
+                force_ocr=args.force_ocr,
+                verbose=verbose,
+            )
 
             if args.ai:
                 from open_ocreader.ai import (
@@ -219,11 +220,11 @@ def main():
                 print("=" * 50)
             return
 
-        # Caso 2: Conversión estructural estándar (RapidOCR -> PDF Sandwich, DOCX, XLSX, TXT, JSON)
+        # Caso 2: Conversión estructural estándar
         selected_format = args.format
         if args.output:
             out_ext = Path(args.output).suffix.lower().lstrip(".")
-            if out_ext in {"pdf", "docx", "xlsx", "txt", "json"} and args.format == "pdf":
+            if out_ext in DocumentConverter.SUPPORTED_FORMATS and args.format == "pdf":
                 selected_format = out_ext
 
         converter = DocumentConverter()
@@ -232,6 +233,9 @@ def main():
             output_path=args.output,
             output_format=selected_format,
             verbose=verbose,
+            force_ocr=args.force_ocr,
+            pdf_compression=args.compression,
+            grayscale=args.grayscale,
         )
 
         if verbose:

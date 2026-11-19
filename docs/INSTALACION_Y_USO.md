@@ -66,3 +66,44 @@ chmod +x scripts/linux/*.sh
 ./scripts/linux/compilar.sh
 ```
 Generará el binario listo en `dist/Open_OCReader/Open_OCReader`.
+
+---
+
+## 5. Versión Portable y Despliegue en Equipos sin Internet (*Air-Gapped* / Intranet Corporativa)
+
+**Open OCReader** es **100% portable**: basta con copiar en una memoria USB o carpeta de red local la estructura del ejecutable compilado junto con las carpetas `bin/` y `models/`:
+
+```text
+Open_OCReader_Portable/
+├── Open_OCReader.exe         # Ejecutable compilado (o carpeta dist/Open_OCReader/)
+├── bin/                      # Binario(s) llama.cpp (ej. win-vulkan-x64 y/o win-cpu-x64)
+└── models/                   # Modelos GGUF verificados con SHA-256
+    ├── Qwen3VL-4B-Instruct-Q4_K_M.gguf   (o Qwen3VL-2B-Instruct-Q4_K_M.gguf para <10 GB RAM)
+    ├── mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf
+    └── bge-m3-Q4_K_M.gguf                (opcional, para Chat/AST híbrido en ≥6 GB RAM)
+```
+
+> ⚠️ **AVISO IMPORTANTE SOBRE HARDWARE EN COPIAS PORTABLES:**
+> Los modelos descargados, los binarios de `llama.cpp` (`Vulkan` vs `CPU`) y las opciones visibles en la interfaz **se adaptan automáticamente al hardware del equipo donde se ejecuta**.
+>
+> * Si preparas una copia portable en un equipo potente (ej. 16–32 GB RAM con GPU Vulkan) y la trasladas a un equipo corporativo **sin conexión a Internet** con distinto hardware (ej. 4–8 GB RAM o sin Vulkan), **existe riesgo de pérdida de funcionalidades de IA, lentitud extrema o fallo al arrancar el motor local**.
+> * **Recomendación para despliegues corporativos *air-gapped*:**
+>   1. Incluye el binario **`bin/win-cpu-x64/`** (compatible con cualquier PC x64 incluso sin GPU Vulkan).
+>   2. Si los equipos destino tienen **< 10 GB de RAM**, incluye **`Qwen3VL-2B-Instruct-Q4_K_M.gguf`** + su `mmproj` en lugar de la versión 4B.
+>   3. Al arrancar, Open OCReader detecta automáticamente cualquier desajuste entre el hardware actual y los archivos presentes en `bin/` y `models/`, reutilizando el modelo local disponible cuando es posible y mostrando un aviso explícito en pantalla.
+
+---
+
+## 6. Instalador Empresarial Windows (`.msi` + `offline_repo/` para GPO / Intune / SCCM)
+
+Para despliegues corporativos en equipos **sin Python, sin `.NET` y sin conexión a Internet**:
+
+1. En tu máquina de compilación, ejecuta **`scripts\windows\compilar_msi.bat`** (o `python scripts\windows\build_msi.py --with-offline-repo`).
+   * Instala automáticamente **WiX Toolset v5** si falta, compila `Open_OCReader.exe` y descarga `offline_repo/` con **todos** los binarios (`win-vulkan-x64` + `win-cpu-x64`) y **todos** los modelos (`Qwen3-VL-4B`, `Qwen3-VL-2B` y `BGE-M3`) verificados por SHA-256.
+2. Distribuye la carpeta **`dist\Open_OCReader_Enterprise_Kit\`** (contiene el `.msi` y `offline_repo\`):
+   ```powershell
+   msiexec /i Open_OCReader_0.2.0_x64.msi /qn
+   ```
+3. Durante la instalación, el MSI detecta el hardware del PC destino y copia en **`C:\ProgramData\Open OCReader\`** únicamente el binario y modelos adecuados a ese equipo. Cualquier usuario estándar (sin permisos de administrador) podrá usar la app guardando sus logs y caché en **`%LOCALAPPDATA%\Open OCReader\`**.
+
+

@@ -1,13 +1,17 @@
 """
 Traductor multilingüe contextual a cualquier idioma mediante LLM local (Qwen3-VL).
+Soporta documentos largos mediante segmentación automática por bloques.
 """
 
 from typing import Callable, Optional
+from .chunking import split_text_chunks
 from .runtime_manager import LlamaRuntimeManager
 
 
 class DocumentTranslator:
     """Traduce documentos desde cualquier idioma a cualquier idioma destino preservando formato."""
+
+    MAX_CHUNK_CHARS = 5500
 
     def __init__(self, runtime: Optional[LlamaRuntimeManager] = None):
         self.runtime = runtime or LlamaRuntimeManager.get_instance()
@@ -25,9 +29,6 @@ class DocumentTranslator:
         if not text.strip():
             return ""
 
-        if progress_cb:
-            progress_cb(f"Traduciendo documento a '{target_lang}' con Qwen3-VL...")
-
         lang_hint = (
             "detecting the source language automatically"
             if source_lang == "auto"
@@ -43,18 +44,31 @@ class DocumentTranslator:
             f"4. Return ONLY the final translation in {target_lang}, without introductions or commentary."
         )
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text},
-        ]
+        chunks = split_text_chunks(text, max_chars=self.MAX_CHUNK_CHARS, overlap=0)
+        translated_parts = []
 
-        return self.runtime.chat_completion(
-            messages=messages,
-            max_tokens=max(2048, len(text) * 2),
-            temperature=0.2,
-            with_vision=False,
-            progress_cb=progress_cb,
-        )
+        for idx, chunk in enumerate(chunks, start=1):
+            if progress_cb:
+                if len(chunks) > 1:
+                    progress_cb(f"Traduciendo bloque {idx}/{len(chunks)} a '{target_lang}'...")
+                else:
+                    progress_cb(f"Traduciendo documento a '{target_lang}' con Qwen3-VL...")
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": chunk},
+            ]
+
+            part = self.runtime.chat_completion(
+                messages=messages,
+                max_tokens=min(3500, max(1024, len(chunk))),
+                temperature=0.2,
+                with_vision=False,
+                progress_cb=progress_cb,
+            )
+            translated_parts.append(part)
+
+        return "\n\n".join(translated_parts).strip()
 
     def translate_to_spanish(
         self,

@@ -26,9 +26,16 @@ def collect_governance_data() -> Dict[str, Any]:
     rt = LlamaRuntimeManager.get_instance()
     now_utc = datetime.now(timezone.utc)
 
-    # Comprobar estado e integridad criptográfica real de los modelos locales
+    # Comprobar estado e integridad criptográfica real de los modelos locales (VLM + Embeddings BGE-M3)
+    models_to_check = [
+        (rt.MODEL_FILENAME, rt.model_path),
+        (rt.MMPROJ_FILENAME, rt.mmproj_path),
+    ]
+    if rt.embed_model_path is not None and rt.tier.embed_filename:
+        models_to_check.append((rt.tier.embed_filename, rt.embed_model_path))
+
     models_status = []
-    for fname, dest in ((rt.MODEL_FILENAME, rt.model_path), (rt.MMPROJ_FILENAME, rt.mmproj_path)):
+    for fname, dest in models_to_check:
         expected = rt.MODEL_SHA256.get(fname, "")
         if dest.exists():
             actual = sha256_file(dest)
@@ -64,6 +71,8 @@ def collect_governance_data() -> Dict[str, Any]:
             "os": f"{platform.system()} {platform.release()} ({platform.machine()})",
             "python": sys.version.split()[0],
             "cpu_cores": rt.hw.cpu_cores,
+            "ram_total_gb": rt.hw.ram_total_gb,
+            "ai_tier": rt.tier.tier_name.upper(),
             "ai_backend": rt.hw.backend.upper(),
             "has_vulkan": rt.hw.has_vulkan,
             "llama_binary_installed": rt.server_executable.exists(),

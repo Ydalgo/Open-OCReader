@@ -50,13 +50,10 @@ def ensure_standard_streams():
 
 
 def get_logs_dir() -> Path:
-    """Obtiene y crea la carpeta de logs en la raíz del proyecto o junto al ejecutable."""
-    if getattr(sys, "frozen", False):
-        base_dir = Path(sys.executable).resolve().parent
-    else:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+    """Obtiene y crea la carpeta de logs en una ruta escribible (portable o %LOCALAPPDATA% en MSI)."""
+    from .paths import get_user_data_dir
 
-    logs_dir = base_dir / "logs"
+    logs_dir = get_user_data_dir() / "logs"
     try:
         logs_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -92,16 +89,24 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
-    # 1. Fichero rotativo local
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(level)
-    logger.addHandler(file_handler)
+    # 1. Fichero rotativo local (con respaldo seguro si otra instancia bloquea el log)
+    try:
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(level)
+        logger.addHandler(file_handler)
+    except PermissionError:
+        import tempfile
+        fallback_log = Path(tempfile.gettempdir()) / "open_ocreader_fallback.log"
+        file_handler = RotatingFileHandler(fallback_log, maxBytes=2 * 1024 * 1024, backupCount=2, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(level)
+        logger.addHandler(file_handler)
 
     # 2. Envío centralizado a SIEM / Syslog (si se configura OPEN_OCREADER_SYSLOG_HOST)
     syslog_host = os.environ.get("OPEN_OCREADER_SYSLOG_HOST", "").strip()

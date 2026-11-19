@@ -45,10 +45,11 @@ test_sample/documento_2paginas.pdf
 test_sample/resultado_*.pdf
 test_output/
 
-# Modelos de IA y binarios portables (se descargan automáticamente)
+# Modelos de IA, cachés locales y binarios portables (se descargan/generan automáticamente)
 models/
 bin/
 logs/
+cache/
 *.log
 *.gguf
 

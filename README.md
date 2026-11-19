@@ -48,20 +48,23 @@ Open OCReader/
 
 ---
 
-## 🌟 Arquitectura en Dos Pilares
+## 🌟 Arquitectura en Tres Pilares
 
-1. **Pilar 1: Digitalización Estructural Rápida (`RapidOCR / ONNX`)**
-   - Extrae el 100% del texto de imágenes (`JPG`, `PNG`, `TIFF`, `BMP`, `WebP`) y `PDF` multipágina.
-   - **PDF Buscable (Sandwich)**: Mantiene la imagen original intacta al 100% con una capa de texto invisible alineada por coordenadas.
-   - Exportación a **Word (`.docx`)**, **Excel (`.xlsx` con protección contra inyección de fórmulas)**, **Texto (`.txt`)** y **JSON (`.json`)**.
+1. **Pilar 1: Digitalización y Conversión Universal (`RapidOCR` + Detección Inteligente PDF)**
+   - **Detección página por página de PDFs ya buscables**: si un PDF ya contiene texto embebido, omite el OCR innecesario (extracción directa en milisegundos) con opción *"Forzar OCR"* si se desea re-escanear.
+   - **10 formatos de salida**: **PDF Buscable (Sandwich)**, **PDF/A-2b** (estándar oficial de archivo para Administraciones Públicas), **Word (`.docx`) y OpenDocument (`.odt`) con recreación visual fiel** (conservando fondos, imágenes, colores y cuadros de texto editables), **Excel (`.xlsx`)**, **OpenDocument Calc (`.ods`)**, **CSV (`.csv`)**, **eBook EPUB 3 (`.epub`)**, **Texto (`.txt`)** y **JSON (`.json`)**.
+   - **Compresión PDF y Escala de grises**: niveles *Alta calidad*, *Equilibrada* y *Máxima compresión* + conversión a blanco y negro.
 
-2. **Pilar 2: Inteligencia Documental Local (`llama.cpp` + `Qwen3-VL-4B-Instruct`)**
-   - **Detección automática de hardware**: Selecciona el binario óptimo (**GPU Vulkan**, **Apple Metal** o **CPU**) con respaldo automático a CPU si falla la GPU.
-   - **Modelo residente en memoria**: Se carga una sola vez y permanece activo durante toda la sesión para responder al instante.
-   - **✍️ OCR sobre Letra Manuscrita**: Lee caligrafía humana difícil mediante visión multimodal.
-   - **🌐 Traducción al Español**: Traduce documentos de cualquier idioma manteniendo términos técnicos.
-   - **🔒 Anonimización RGPD**: Ocultación híbrida (Regex determinista + IA) de DNI, NIE, CIF, IBAN, teléfonos, correos, nombres y direcciones.
-   - **💬 Preguntas y Resúmenes (Q&A)**: Haz preguntas directas sobre el contenido o genera resúmenes ejecutivos.
+2. **Pilar 2: Inteligencia Documental Local vinculada al Hardware (`llama.cpp` + `Qwen3-VL` + `BGE-M3`)**
+   - **Perfiles automáticos según Hardware (`ultra_light` / `light` / `standard` / `pro`)**: mide la RAM real y la GPU (**Vulkan**, **Apple Metal** o **CPU**) para elegir automáticamente `Qwen3-VL-4B` o `Qwen3-VL-2B` (Apache 2.0), el contexto `n_ctx` seguro y activar `BGE-M3` (MIT, bajo demanda o residente) con protección anti-OOM.
+   - **Árbol de Nodos AST + Búsqueda Híbrida RRF (`BGE-M3` + `BM25Okapi`) + Compresión BPE** *(inspirado en GuarIdA)*: poda el contexto de documentos largos (50–300+ páginas), recicla la **KV Cache** (`cache_prompt`) y guarda el índice en **SQLite WAL comprimido (`zstd`/`zlib`) por SHA-256**.
+   - **✍️ OCR Manuscrito**, **🌐 Traducción a cualquier idioma**, **🔒 Anonimización RGPD híbrida**, **📝 Resúmenes ejecutivos Map-Reduce AST** y **💬 Preguntas (Q&A)**.
+
+3. **Pilar 3: Herramientas PDF (`pikepdf` + `PyMuPDF` + `OpenCV`)**
+   - **🔓 Desbloqueo de PDFs** (eliminación de restricciones de copia/impresión o desencriptación con contraseña autorizada; sin fuerza bruta).
+   - **✍️ Borrado de firmas digitales** (campos `/Sig`, bloqueos `DocMDP` y sellos visuales).
+   - **🧽 Limpieza de marcas de agua** (anotaciones `/Watermark`, capas OCG, texto específico y limpieza OpenCV en escaneos).
+   - **🗜️ Optimización directa** (compresión, escala de grises y conversión a PDF/A-2b). Desactivable por política ENS con `OPEN_OCREADER_DISABLE_PDF_TOOLS=1`.
 
 ---
 
@@ -176,16 +179,17 @@ python src/ocr_tool.py --update
 * **[RapidOCR](https://github.com/RapidAI/RapidOCR) y [ONNX Runtime](https://onnxruntime.ai/)**:
   * **RapidOCR** es un motor OCR de código abierto derivado de PaddleOCR, diseñado para extraer texto con coordenadas geométricas exactas a gran velocidad en CPU sin dependencias pesadas.
   * **ONNX Runtime** (Microsoft) es el motor de inferencia multiplataforma en C++ que ejecuta los modelos neuronales de RapidOCR con optimizaciones de procesador (AVX2/SIMD).
-* **Procesamiento Documental e Imagen**:
-  * **[pypdfium2](https://github.com/pypdfium2-team/pypdfium2)** (basado en Google PDFium) y **[pypdf](https://pypdf.readthedocs.io/)** para lectura y renderizado de PDFs multipágina.
-  * **[ReportLab](https://www.reportlab.com/)** para construir los PDFs buscables tipo *Sandwich* con capa de texto invisible.
-  * **[OpenCV](https://opencv.org/)** y **[Pillow](https://python-pillow.org/)** para el tratamiento de imágenes.
-  * **[python-docx](https://python-docx.readthedocs.io/)** y **[openpyxl](https://openpyxl.readthedocs.io/)** para la generación de documentos Word y hojas de cálculo Excel.
+* **Procesamiento Documental, PDF Avanzado e Imagen**:
+  * **[pypdfium2](https://github.com/pypdfium2-team/pypdfium2)** (Google PDFium), **[pypdf](https://pypdf.readthedocs.io/)**, **[pikepdf](https://pikepdf.readthedocs.io/)** (basado en **[QPDF](https://qpdf.sourceforge.io/)** — MPL-2.0) y **[PyMuPDF](https://pymupdf.readthedocs.io/)** (Artifex — AGPL-3.0) para lectura rápida sin OCR, PDF/A-2b, desbloqueo, firmas y marcas de agua.
+  * **[pdf2docx](https://github.com/ArtifexSoftware/pdf2docx)**, **[python-docx](https://python-docx.readthedocs.io/)** y **[openpyxl](https://openpyxl.readthedocs.io/)** para generación fiel de Word, ODT, Excel, ODS, CSV y EPUB 3.
+  * **[ReportLab](https://www.reportlab.com/)**, **[OpenCV](https://opencv.org/)**, **[Pillow](https://python-pillow.org/)** y **[psutil](https://github.com/giampaolo/psutil)** para PDF Sandwich, *inpainting* de fondos, escala de grises y telemetría de hardware.
 
 ### 🧠 Motor de Inteligencia Artificial Local
-* **[llama.cpp](https://github.com/ggml-org/llama.cpp)**: Extraordinario motor de inferencia en C/C++ impulsado por Georgi Gerganov y la comunidad `ggml-org`. Permite ejecutar modelos de lenguaje y visión en formato cuantizado **GGUF** 100% en local, aprovechando tanto CPUs estándar como GPUs (Vulkan, CUDA y Metal).
-* **[Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF)** ([Qwen Team — Alibaba](https://qwenlm.github.io/)): Modelo multimodal (Visión + Lenguaje) de pesos abiertos bajo licencia Apache 2.0. Proporciona la lectura de **letra manuscrita**, traducciones naturales al español, resúmenes ejecutivos, preguntas sobre el contenido y apoyo semántico a la anonimización RGPD.
-* **[Hugging Face](https://huggingface.co/)**: Plataforma abierta que aloja y distribuye los modelos oficiales GGUF con verificación criptográfica.
+* **[llama.cpp](https://github.com/ggml-org/llama.cpp)**: Extraordinario motor de inferencia en C/C++ impulsado por Georgi Gerganov y la comunidad `ggml-org`. Ejecuta tanto los modelos VLM como el servidor de embeddings en formato **GGUF** 100% en local sobre CPU, Vulkan, CUDA y Metal.
+* **[Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF) y [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF)** ([Qwen Team — Alibaba](https://qwenlm.github.io/), licencia **Apache 2.0**): Familia multimodal (Visión + Lenguaje) escalada automáticamente según la RAM del equipo para manuscritos, traducción, resúmenes, Q&A y anonimización RGPD.
+* **[BGE-M3](https://huggingface.co/gpustack/bge-m3-GGUF)** ([BAAI — Beijing Academy of Artificial Intelligence](https://github.com/FlagOpen/FlagEmbedding), licencia **MIT**): Modelo multilingüe de embeddings de última generación utilizado para la búsqueda híbrida (Vectorial + BM25 RRF) sobre el Árbol de Nodos AST.
+* **Arquitectura de contexto e ingeniería inspirada en [GuarIdA](https://github.com/Ydalgo)** (Árbol de Nodos AST, compresión BPE, búsqueda híbrida RRF, caché SQLite WAL comprimida y perfiles de hardware).
+* **[Hugging Face](https://huggingface.co/)**: Plataforma abierta que aloja y distribuye los modelos oficiales GGUF con verificación criptográfica SHA-256.
 
 ### 🌐 Servidor API y Compilación Nativa
 * **[FastAPI](https://fastapi.tiangolo.com/)**, **[Uvicorn](https://www.uvicorn.org/)** y **[Nginx](https://nginx.org/)**: Base del modo servidor REST endurecido, documentación interactiva Swagger UI y despliegue con cifrado **TLS 1.3**.

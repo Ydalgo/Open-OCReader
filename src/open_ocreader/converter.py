@@ -1,16 +1,23 @@
 """
 Orquestador principal de conversión de documentos de Open OCReader.
+Soporta detección inteligente de PDFs ya buscables (omite OCR redundante),
+formatos estándar y de Administración Pública (PDF, PDF/A, DOCX, ODT, XLSX, ODS, CSV, EPUB, TXT, JSON),
+compresión PDF y conversión a escala de grises.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 import time
-from typing import Optional, List, Tuple
+from typing import Callable, List, Optional, Tuple
 from .engine import OCREngine, OCRBox
 from .document_loader import DocumentLoader, PageData
 from .formats.pdf_builder import build_sandwich_pdf
 from .formats.docx_builder import build_docx
+from .formats.odt_builder import build_odt
 from .formats.excel_builder import build_excel
+from .formats.ods_builder import build_ods
+from .formats.csv_builder import build_csv
+from .formats.epub_builder import build_epub
 from .formats.txt_builder import build_txt
 from .formats.json_builder import build_json
 
@@ -24,18 +31,26 @@ class ConversionResult:
     total_pages: int
     total_elements: int
     elapsed_seconds: float
+    native_text_pages: int = 0
+    ocr_pages: int = 0
 
 
 class DocumentConverter:
     """
-    Conversor universal de documentos: procesa entradas visuales y las exporta
-    al formato deseado (PDF sandwich, DOCX, XLSX, TXT, JSON).
+    Conversor universal de documentos: procesa entradas visuales o PDFs nativos
+    y los exporta al formato deseado (PDF, PDF/A, DOCX, ODT, XLSX, ODS, CSV, EPUB, TXT, JSON).
     """
 
-    SUPPORTED_FORMATS = {"pdf", "docx", "xlsx", "txt", "json"}
+    SUPPORTED_FORMATS = {"pdf", "pdfa", "docx", "odt", "xlsx", "ods", "csv", "epub", "txt", "json"}
 
     def __init__(self):
-        self.engine = OCREngine.get_instance()
+        self._engine: Optional[OCREngine] = None
+
+    @property
+    def engine(self) -> OCREngine:
+        if self._engine is None:
+            self._engine = OCREngine.get_instance()
+        return self._engine
 
     def convert(
         self,
@@ -43,14 +58,22 @@ class DocumentConverter:
         output_path: Optional[str] = None,
         output_format: str = "pdf",
         verbose: bool = True,
+        force_ocr: bool = False,
+        pdf_compression: str = "high",
+        grayscale: bool = False,
+        progress_cb: Optional[Callable[[str], None]] = None,
     ) -> ConversionResult:
         """
-        Ejecuta la digitalización completa del documento.
-        
+        Ejecuta la digitalización / conversión completa del documento.
+
         :param input_path: Ruta de la imagen o PDF de entrada.
         :param output_path: Ruta de salida deseada (opcional; si se omite, se deduce).
-        :param output_format: Formato deseado ('pdf', 'docx', 'xlsx', 'txt', 'json').
+        :param output_format: 'pdf', 'pdfa', 'docx', 'odt', 'xlsx', 'ods', 'csv', 'epub', 'txt', 'json'.
         :param verbose: Si es True, imprime información sobre el progreso.
+        :param force_ocr: Si es True, fuerza OCR aunque el PDF ya tenga texto buscable.
+        :param pdf_compression: 'high', 'balanced' o 'compact' (aplica a PDF y PDF/A).
+        :param grayscale: Si es True, convierte imágenes/fondos a escala de grises en PDF/PDF/A.
+        :param progress_cb: Callback opcional de progreso para la GUI.
         """
         fmt = output_format.lower().lstrip(".")
         if fmt not in self.SUPPORTED_FORMATS:
@@ -59,56 +82,127 @@ class DocumentConverter:
                 f"Formatos disponibles: {', '.join(sorted(self.SUPPORTED_FORMATS))}"
             )
 
+        def notify(msg: str):
+            if verbose:
+                print(f"[Open OCReader] {msg}")
+            if progress_cb:
+                progress_cb(msg)
+
         start_time = time.perf_counter()
         in_p = Path(input_path)
+        is_pdf_input = in_p.suffix.lower() == ".pdf"
 
-        # Determinar ruta de salida por defecto si no se especificó
+        # Extensión real de salida (pdfa usa extensión .pdf)
+        file_ext = "pdf" if fmt == "pdfa" else fmt
+        suffix_tag = "_pdfa" if fmt == "pdfa" else "_ocr"
+
         if not output_path:
-            out_p = in_p.parent / f"{in_p.stem}_ocr.{fmt}"
+            out_p = in_p.parent / f"{in_p.stem}{suffix_tag}.{file_ext}"
             final_output_path = str(out_p)
         else:
             final_output_path = output_path
 
-        if verbose:
-            print(f"[Open OCReader] Cargando documento: {in_p.name}")
+        # Ruta ultrarrápida para PDF nativo -> DOCX (usa pdf2docx directamente sin rasterizar)
+        if fmt == "docx" and is_pdf_input and not force_ocr:
+            pdf_info = DocumentLoader.inspect_pdf_text(str(in_p))
+            if pdf_info and pdf_info["all_searchable"]:
+                notify(
+                    f"PDF con texto buscable detectado ({pdf_info['total_pages']} pág.): "
+                    f"convirtiendo a Word (.docx) de forma nativa sin OCR..."
+                )
+                build_docx(
+                    [],
+                    final_output_path,
+                    source_pdf_path=str(in_p),
+                    use_native_pdf_converter=True,
+                )
+                # Verificar si pdf2docx extrajo texto editable (en PDFs Sandwich con texto invisible puede quedar vacío)
+                from docx import Document as DocxReader
+                try:
+                    check_doc = DocxReader(final_output_path)
+                    extracted_chars = sum(len(p.text.strip()) for p in check_doc.paragraphs) + sum(
+                        len(c.text.strip()) for t in check_doc.tables for r in t.rows for c in r.cells
+                    )
+                except Exception:
+                    extracted_chars = 0
 
-        # 1. Cargar páginas
+                if extracted_chars >= 15:
+                    elapsed = time.perf_counter() - start_time
+                    return ConversionResult(
+                        input_path=str(in_p),
+                        output_path=final_output_path,
+                        output_format=fmt,
+                        total_pages=pdf_info["total_pages"],
+                        total_elements=sum(len(t.split()) for t in pdf_info["texts"]),
+                        elapsed_seconds=elapsed,
+                        native_text_pages=pdf_info["total_pages"],
+                        ocr_pages=0,
+                    )
+                notify("PDF tipo Sandwich detectado: reconstruyendo Word fiel con fondo y cuadros de texto editables (sin OCR)...")
+
+        notify(f"Cargando documento: {in_p.name}")
+
+        # 1. Cargar páginas (incluye detección de texto nativo embebido si es PDF)
         pages = DocumentLoader.load_pages(str(in_p))
-        if verbose:
-            print(f"[Open OCReader] Páginas detectadas: {len(pages)}")
+        notify(f"Páginas detectadas: {len(pages)}")
 
-        # 2. Procesar OCR en cada página
+        # 2. Procesar cada página: reutilizar texto nativo si existe (salvo force_ocr=True)
         pages_with_boxes: List[Tuple[PageData, List[OCRBox]]] = []
         total_elements = 0
+        native_pages = 0
+        ocr_pages = 0
 
         for page in pages:
-            if verbose and len(pages) > 1:
-                print(f"[Open OCReader] Procesando página {page.page_number}/{len(pages)}...")
-            boxes = self.engine.process_image(page.image)
+            if page.has_embedded_text and not force_ocr and page.native_boxes:
+                notify(f"Página {page.page_number}/{len(pages)}: texto buscable nativo detectado (sin OCR).")
+                boxes = page.native_boxes
+                native_pages += 1
+            else:
+                notify(f"Página {page.page_number}/{len(pages)}: ejecutando OCR...")
+                boxes = self.engine.process_image(page.image)
+                ocr_pages += 1
+
             total_elements += len(boxes)
             pages_with_boxes.append((page, boxes))
 
         # 3. Construir el fichero de salida según el formato
-        if verbose:
-            print(f"[Open OCReader] Generando salida en formato '{fmt.upper()}' -> {final_output_path}")
+        notify(f"Generando salida '{fmt.upper()}' -> {Path(final_output_path).name}")
 
-        if fmt == "pdf":
-            build_sandwich_pdf(pages_with_boxes, final_output_path)
+        if fmt in ("pdf", "pdfa"):
+            build_sandwich_pdf(
+                pages_with_boxes,
+                final_output_path,
+                pdfa=(fmt == "pdfa"),
+                compression=pdf_compression,
+                grayscale=grayscale,
+            )
         elif fmt == "docx":
-            build_docx(pages_with_boxes, final_output_path)
+            build_docx(
+                pages_with_boxes,
+                final_output_path,
+                source_pdf_path=str(in_p) if is_pdf_input else None,
+                use_native_pdf_converter=False,
+            )
+        elif fmt == "odt":
+            build_odt(pages_with_boxes, final_output_path)
         elif fmt == "xlsx":
             build_excel(pages_with_boxes, final_output_path)
+        elif fmt == "ods":
+            build_ods(pages_with_boxes, final_output_path)
+        elif fmt == "csv":
+            build_csv(pages_with_boxes, final_output_path)
+        elif fmt == "epub":
+            build_epub(pages_with_boxes, final_output_path, title=in_p.stem)
         elif fmt == "txt":
             build_txt(pages_with_boxes, final_output_path)
         elif fmt == "json":
             build_json(pages_with_boxes, final_output_path)
 
         elapsed = time.perf_counter() - start_time
-        if verbose:
-            print(
-                f"[Open OCReader] ✓ Completado en {elapsed:.2f}s "
-                f"({total_elements} elementos de texto reconocidos)."
-            )
+        notify(
+            f"✓ Completado en {elapsed:.2f}s "
+            f"({native_pages} pág. nativas, {ocr_pages} OCR, {total_elements} elementos)."
+        )
 
         return ConversionResult(
             input_path=str(in_p),
@@ -117,4 +211,6 @@ class DocumentConverter:
             total_pages=len(pages),
             total_elements=total_elements,
             elapsed_seconds=elapsed,
+            native_text_pages=native_pages,
+            ocr_pages=ocr_pages,
         )
