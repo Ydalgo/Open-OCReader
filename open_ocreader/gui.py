@@ -1,7 +1,9 @@
 """
 Interfaz gráfica de usuario (GUI) nativa para Open OCReader.
-Incluye zona de arrastrar y soltar (Drag & Drop), soporte para pegar (Ctrl+V)
-desde el portapapeles y ejecución en segundo plano.
+Incluye:
+  - Pestaña 1: Conversión rápida y fiel (PDF Sandwich, DOCX, XLSX, TXT, JSON) con Drag & Drop y Ctrl+V.
+  - Pestaña 2: Inteligencia Documental Local (Qwen3-VL vía llama.cpp) para letra manuscrita,
+               traducción al español, anonimización RGPD, resúmenes y preguntas Q&A.
 """
 
 import os
@@ -15,15 +17,18 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import ImageGrab
 from .converter import DocumentConverter
+from .document_loader import DocumentLoader
+from .engine import OCREngine
+from .formats.docx_builder import _group_boxes_into_lines
 
-# Intentar cargar soporte nativo de Drag & Drop en Windows
+# Soporte nativo de Drag & Drop en Windows
 try:
     import windnd
     HAS_WINDND = True
 except ImportError:
     HAS_WINDND = False
 
-# Intentar cargar soporte de portapapeles de Windows para ficheros copiados
+# Soporte de portapapeles de Windows para ficheros copiados
 try:
     import win32clipboard
     import win32con
@@ -45,11 +50,10 @@ class OpenOCReaderGUI:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Open OCReader - Suite de Digitalización Documental")
-        self.root.geometry("700x680")
-        self.root.minsize(620, 620)
+        self.root.title("Open OCReader - Digitalización e IA Documental 100% Local")
+        self.root.geometry("760x740")
+        self.root.minsize(680, 660)
 
-        # Configurar estilo ttk moderno
         self.style = ttk.Style()
         try:
             self.style.theme_use("vista" if "vista" in self.style.theme_names() else "clam")
@@ -59,54 +63,52 @@ class OpenOCReaderGUI:
         self.input_path_var = tk.StringVar()
         self.output_path_var = tk.StringVar()
         self.format_var = tk.StringVar(value="pdf")
-        self.status_var = tk.StringVar(value="Arrastra un fichero a la caja, pulsa 'Examinar' o pega con Ctrl+V.")
+        self.status_var = tk.StringVar(value="Arrastra un fichero, pulsa 'Examinar' o pega con Ctrl+V.")
+        self.ai_status_var = tk.StringVar(value="Listo. Selecciona un documento y elige una acción inteligente.")
+        self.handwriting_var = tk.BooleanVar(value=False)
+        self.question_var = tk.StringVar()
+
         self.last_generated_file = None
+        self.cached_doc_text = None
+        self.cached_doc_key = None  # (file_path, handwriting_flag)
 
         self._build_ui()
         self._setup_drag_and_drop()
         self._setup_clipboard_paste()
 
     def _build_ui(self):
-        main_frame = ttk.Frame(self.root, padding="16 14 16 14")
+        main_frame = ttk.Frame(self.root, padding="14 12 14 12")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 1. Cabecera
+        # Cabecera común
         header_frame = ttk.Frame(main_frame)
-        header_frame.pack(fill=tk.X, pady=(0, 10))
+        header_frame.pack(fill=tk.X, pady=(0, 8))
 
-        title_lbl = ttk.Label(
+        ttk.Label(header_frame, text="Open OCReader 📄🔍🧠", font=("Segoe UI", 16, "bold")).pack(anchor="w")
+        ttk.Label(
             header_frame,
-            text="Open OCReader 📄🔍",
-            font=("Segoe UI", 16, "bold"),
-        )
-        title_lbl.pack(anchor="w")
-
-        subtitle_lbl = ttk.Label(
-            header_frame,
-            text="Digitalización 100% local, privada y fiel al diseño original. Sin ventanas terminales.",
+            text="Conversión fiel a PDF/Word/Excel + IA Local (Qwen3-VL) para manuscritos, traducción y anonimización.",
             font=("Segoe UI", 9),
             foreground="#555555",
-        )
-        subtitle_lbl.pack(anchor="w")
+        ).pack(anchor="w")
 
-        # 2. Sección: Zona de Arrastrar y Soltar (Drop Zone)
-        drop_frame = ttk.LabelFrame(main_frame, text=" 1. Fichero de entrada ", padding="10")
+        # Selector de fichero común en la parte superior
+        drop_frame = ttk.LabelFrame(main_frame, text=" Fichero de entrada (Imagen o PDF) ", padding="8")
         drop_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # Canvas interactivo para simular la zona de Drop
         self.drop_canvas = tk.Canvas(
             drop_frame,
             bg="#f4f6f9",
-            height=75,
+            height=64,
             highlightthickness=1,
             highlightbackground="#b0c4de",
             relief="flat",
         )
-        self.drop_canvas.pack(fill=tk.X, pady=(0, 8))
+        self.drop_canvas.pack(fill=tk.X, pady=(0, 6))
 
         self.drop_text_id = self.drop_canvas.create_text(
-            330, 38,
-            text="📥 Arrastra y suelta aquí tu fichero (PDF, JPG, PNG, TIFF)\no usa el botón 'Examinar' o pulsa Pegar (Ctrl + V)",
+            350, 32,
+            text="📥 Arrastra y suelta aquí tu fichero (PDF, JPG, PNG, TIFF) o pulsa Pegar (Ctrl + V)",
             font=("Segoe UI", 10, "italic"),
             fill="#334466",
             justify="center",
@@ -114,115 +116,180 @@ class OpenOCReaderGUI:
         self.drop_canvas.bind("<Configure>", self._center_drop_text)
         self.drop_canvas.bind("<Button-1>", lambda e: self._browse_input())
 
-        # Barra de botones y campo de ruta
         entry_row = ttk.Frame(drop_frame)
         entry_row.pack(fill=tk.X)
 
         self.input_entry = ttk.Entry(entry_row, textvariable=self.input_path_var, font=("Segoe UI", 9))
         self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
 
-        btn_paste = ttk.Button(entry_row, text="📋 Pegar (Ctrl+V)", command=self._paste_from_clipboard)
-        btn_paste.pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(entry_row, text="📋 Pegar (Ctrl+V)", command=self._paste_from_clipboard).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(entry_row, text="Examinar...", command=self._browse_input).pack(side=tk.RIGHT)
 
-        btn_browse_in = ttk.Button(entry_row, text="Examinar...", command=self._browse_input)
-        btn_browse_in.pack(side=tk.RIGHT)
+        # Pestañas (Notebook)
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
 
-        # 3. Sección: Formato de salida
-        format_group = ttk.LabelFrame(main_frame, text=" 2. Formato de salida deseado ", padding="8")
+        self.tab_convert = ttk.Frame(self.notebook, padding="10")
+        self.tab_ai = ttk.Frame(self.notebook, padding="10")
+
+        self.notebook.add(self.tab_convert, text="  📄 Conversión Estructural (Rápida)  ")
+        self.notebook.add(self.tab_ai, text="  🧠 IA Local y Manuscritos (Qwen3-VL)  ")
+
+        self._build_convert_tab()
+        self._build_ai_tab()
+
+    def _build_convert_tab(self):
+        # Formato de salida
+        format_group = ttk.LabelFrame(self.tab_convert, text=" Formato de salida ", padding="8")
         format_group.pack(fill=tk.X, pady=(0, 10))
 
         for label_text, fmt_key, desc in self.FORMAT_OPTIONS:
             rb_frame = ttk.Frame(format_group)
-            rb_frame.pack(fill=tk.X, pady=1)
+            rb_frame.pack(fill=tk.X, pady=2)
 
-            rb = ttk.Radiobutton(
+            ttk.Radiobutton(
                 rb_frame,
                 text=label_text,
                 value=fmt_key,
                 variable=self.format_var,
                 command=self._on_format_changed,
-            )
-            rb.pack(side=tk.LEFT)
+            ).pack(side=tk.LEFT)
 
-            desc_lbl = ttk.Label(rb_frame, text=f"— {desc}", font=("Segoe UI", 8), foreground="#666666")
-            desc_lbl.pack(side=tk.LEFT, padx=(8, 0))
+            ttk.Label(rb_frame, text=f"— {desc}", font=("Segoe UI", 8), foreground="#666666").pack(side=tk.LEFT, padx=(8, 0))
 
-        # 4. Sección: Destino
-        output_group = ttk.LabelFrame(main_frame, text=" 3. Destino del fichero ", padding="8")
+        # Destino
+        output_group = ttk.LabelFrame(self.tab_convert, text=" Fichero de salida ", padding="8")
         output_group.pack(fill=tk.X, pady=(0, 12))
 
         output_entry_frame = ttk.Frame(output_group)
         output_entry_frame.pack(fill=tk.X)
 
-        self.output_entry = ttk.Entry(output_entry_frame, textvariable=self.output_path_var, font=("Segoe UI", 9))
-        self.output_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        ttk.Entry(output_entry_frame, textvariable=self.output_path_var, font=("Segoe UI", 9)).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8)
+        )
+        ttk.Button(output_entry_frame, text="Guardar como...", command=self._browse_output).pack(side=tk.RIGHT)
 
-        btn_browse_out = ttk.Button(output_entry_frame, text="Guardar como...", command=self._browse_output)
-        btn_browse_out.pack(side=tk.RIGHT)
-
-        # 5. Sección de Acción y Progreso
-        action_frame = ttk.Frame(main_frame)
-        action_frame.pack(fill=tk.X, pady=(2, 6))
-
+        # Botón convertir
         self.btn_convert = ttk.Button(
-            action_frame,
+            self.tab_convert,
             text="🚀  Digitalizar y Convertir",
             command=self._start_conversion,
         )
-        self.btn_convert.pack(fill=tk.X, ipady=6)
+        self.btn_convert.pack(fill=tk.X, ipady=6, pady=(2, 6))
 
-        # Barra de progreso
-        self.progress_bar = ttk.Progressbar(main_frame, mode="indeterminate")
-        self.progress_bar.pack(fill=tk.X, pady=(4, 4))
+        self.progress_bar = ttk.Progressbar(self.tab_convert, mode="indeterminate")
+        self.progress_bar.pack(fill=tk.X, pady=(0, 6))
 
-        # Etiqueta de estado
-        self.status_lbl = ttk.Label(
-            main_frame,
+        ttk.Label(
+            self.tab_convert,
             textvariable=self.status_var,
             font=("Segoe UI", 9),
             foreground="#222222",
-            wraplength=650,
-        )
-        self.status_lbl.pack(anchor="w")
+            wraplength=690,
+        ).pack(anchor="w")
 
-        # 6. Botones de acción posterior (Abrir fichero / carpeta)
-        self.post_action_frame = ttk.Frame(main_frame)
-        self.post_action_frame.pack(fill=tk.X, pady=(8, 0))
+        post_frame = ttk.Frame(self.tab_convert)
+        post_frame.pack(fill=tk.X, pady=(10, 0))
 
-        self.btn_open_file = ttk.Button(
-            self.post_action_frame,
-            text="📄 Abrir fichero generado",
-            command=self._open_file,
-            state=tk.DISABLED,
-        )
+        self.btn_open_file = ttk.Button(post_frame, text="📄 Abrir fichero", command=self._open_file, state=tk.DISABLED)
         self.btn_open_file.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.btn_open_folder = ttk.Button(
-            self.post_action_frame,
-            text="📁 Abrir carpeta contenedora",
-            command=self._open_folder,
-            state=tk.DISABLED,
-        )
+        self.btn_open_folder = ttk.Button(post_frame, text="📁 Abrir carpeta", command=self._open_folder, state=tk.DISABLED)
         self.btn_open_folder.pack(side=tk.LEFT)
 
+    def _build_ai_tab(self):
+        # Opción de lectura manuscrita
+        opts_frame = ttk.Frame(self.tab_ai)
+        opts_frame.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Checkbutton(
+            opts_frame,
+            text="✍️ Modo Letra Manuscrita (usa Qwen3-VL Visión en lugar de RapidOCR para leer caligrafía)",
+            variable=self.handwriting_var,
+        ).pack(anchor="w")
+
+        # Botones de acciones IA
+        actions_frame = ttk.LabelFrame(self.tab_ai, text=" Acciones sobre el documento ", padding="8")
+        actions_frame.pack(fill=tk.X, pady=(0, 8))
+
+        btn_row = ttk.Frame(actions_frame)
+        btn_row.pack(fill=tk.X)
+
+        self.ai_buttons = []
+        btns_spec = [
+            ("✍️ Transcribir", "transcribe"),
+            ("📝 Resumir", "summarize"),
+            ("🌐 Traducir al español", "translate"),
+            ("🔒 Anonimizar (RGPD)", "anonymize"),
+        ]
+        for label, action_id in btns_spec:
+            b = ttk.Button(btn_row, text=label, command=lambda act=action_id: self._run_ai_action(act))
+            b.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=3)
+            self.ai_buttons.append(b)
+
+        # Preguntar al documento
+        qa_frame = ttk.Frame(actions_frame)
+        qa_frame.pack(fill=tk.X, pady=(8, 0))
+
+        ttk.Label(qa_frame, text="💬 Pregunta:").pack(side=tk.LEFT, padx=(0, 6))
+        q_entry = ttk.Entry(qa_frame, textvariable=self.question_var, font=("Segoe UI", 9))
+        q_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        q_entry.bind("<Return>", lambda e: self._run_ai_action("ask"))
+
+        b_ask = ttk.Button(qa_frame, text="Preguntar", command=lambda: self._run_ai_action("ask"))
+        b_ask.pack(side=tk.RIGHT)
+        self.ai_buttons.append(b_ask)
+
+        # Progreso y estado IA
+        self.ai_progress = ttk.Progressbar(self.tab_ai, mode="indeterminate")
+        self.ai_progress.pack(fill=tk.X, pady=(2, 4))
+
+        ttk.Label(
+            self.tab_ai,
+            textvariable=self.ai_status_var,
+            font=("Segoe UI", 8),
+            foreground="#333333",
+            wraplength=690,
+        ).pack(anchor="w", pady=(0, 4))
+
+        # Área de texto resultado
+        text_frame = ttk.Frame(self.tab_ai)
+        text_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.ai_output_text = tk.Text(
+            text_frame,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            yscrollcommand=scrollbar.set,
+            padx=8,
+            pady=8,
+        )
+        self.ai_output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.ai_output_text.yview)
+
+        # Botones inferiores IA
+        ai_bottom = ttk.Frame(self.tab_ai)
+        ai_bottom.pack(fill=tk.X, pady=(6, 0))
+
+        ttk.Button(ai_bottom, text="📋 Copiar texto", command=self._copy_ai_output).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(ai_bottom, text="💾 Guardar como .txt", command=self._save_ai_output).pack(side=tk.LEFT)
+
     def _center_drop_text(self, event):
-        """Centra el texto dentro del área de arrastrar y soltar."""
         self.drop_canvas.coords(self.drop_text_id, event.width / 2, event.height / 2)
 
     def _setup_drag_and_drop(self):
-        """Configura el arrastrar y soltar de ficheros mediante windnd en Windows."""
         if HAS_WINDND:
             try:
                 windnd.hook_dropfiles(self.root, func=self._on_files_dropped)
-            except Exception as e:
-                print(f"[Aviso] No se pudo inicializar Drag & Drop: {e}")
+            except Exception:
+                pass
 
     def _on_files_dropped(self, files):
-        """Callback cuando se sueltan ficheros sobre la ventana."""
         if not files:
             return
-
-        # En Windows windnd devuelve bytes o str
         first = files[0]
         if isinstance(first, bytes):
             try:
@@ -231,25 +298,26 @@ class OpenOCReaderGUI:
                 file_path = first.decode("mbcs", errors="ignore")
         else:
             file_path = str(first)
-
         self._set_input_file(file_path)
 
     def _setup_clipboard_paste(self):
-        """Asocia la combinación Ctrl+V para pegar ficheros o imágenes."""
-        self.root.bind_all("<Control-v>", lambda e: self._paste_from_clipboard())
-        self.root.bind_all("<Control-V>", lambda e: self._paste_from_clipboard())
+        self.root.bind_all("<Control-v>", self._on_ctrl_v)
+        self.root.bind_all("<Control-V>", self._on_ctrl_v)
+
+    def _on_ctrl_v(self, event):
+        # Si el foco está dentro de la caja de pregunta o de resultado, permitir pegado normal de texto
+        focused = self.root.focus_get()
+        if isinstance(focused, (ttk.Entry, tk.Entry, tk.Text)) and focused != self.input_entry:
+            return
+        self._paste_from_clipboard()
 
     def _paste_from_clipboard(self):
-        """Pega un fichero copiado en el Explorador, una imagen capturada o una ruta de texto."""
-        # 1. Comprobar si hay una imagen directa en el portapapeles (ej. recorte de pantalla con Win+Shift+S)
         try:
             img = ImageGrab.grabclipboard()
             if img is not None:
-                # Guardar en un fichero temporal en la carpeta temporal de usuario
                 temp_dir = Path(tempfile.gettempdir()) / "open_ocreader"
                 temp_dir.mkdir(parents=True, exist_ok=True)
-                timestamp = int(time.time())
-                temp_img_path = temp_dir / f"captura_portapapeles_{timestamp}.png"
+                temp_img_path = temp_dir / f"captura_portapapeles_{int(time.time())}.png"
                 img.save(str(temp_img_path))
                 self._set_input_file(str(temp_img_path))
                 self.status_var.set("✓ Imagen capturada del portapapeles cargada correctamente.")
@@ -257,7 +325,6 @@ class OpenOCReaderGUI:
         except Exception:
             pass
 
-        # 2. Comprobar si hay ficheros copiados en el portapapeles de Windows (CF_HDROP)
         if HAS_WIN32CLIP:
             try:
                 win32clipboard.OpenClipboard()
@@ -266,19 +333,16 @@ class OpenOCReaderGUI:
                         files = win32clipboard.GetClipboardData(win32con.CF_HDROP)
                         if files:
                             self._set_input_file(files[0])
-                            self.status_var.set(f"✓ Fichero pegado desde el portapapeles: {Path(files[0]).name}")
                             return
                 finally:
                     win32clipboard.CloseClipboard()
             except Exception:
                 pass
 
-        # 3. Comprobar si el portapapeles contiene texto con una ruta de fichero existente
         try:
             clipboard_text = self.root.clipboard_get().strip().strip('"').strip("'")
             if Path(clipboard_text).is_file():
                 self._set_input_file(clipboard_text)
-                self.status_var.set(f"✓ Ruta cargada: {Path(clipboard_text).name}")
                 return
         except Exception:
             pass
@@ -292,41 +356,37 @@ class OpenOCReaderGUI:
             return
 
         self.input_path_var.set(str(path_obj.resolve()))
+        self.cached_doc_text = None
+        self.cached_doc_key = None
         self._update_default_output()
-        # Actualizar aspecto del drop_canvas para mostrar el fichero cargado
+
         self.drop_canvas.config(bg="#eaf4ea", highlightbackground="#88bb88")
         self.drop_canvas.itemconfigure(
             self.drop_text_id,
-            text=f"✓ Fichero seleccionado: {path_obj.name}\n(Haz clic para cambiarlo o pulsa 'Digitalizar y Convertir')",
+            text=f"✓ Fichero seleccionado: {path_obj.name}  (Haz clic para cambiar)",
             fill="#1e6b1e",
         )
         self.status_var.set(f"Fichero listo: {path_obj.name}")
+        self.ai_status_var.set(f"Documento cargado: {path_obj.name}. Elige una acción de IA.")
 
     def _browse_input(self):
         filetypes = [
             ("Ficheros soportados", "*.pdf;*.png;*.jpg;*.jpeg;*.tiff;*.tif;*.bmp;*.webp"),
             ("Documentos PDF (*.pdf)", "*.pdf"),
-            ("Imágenes (*.png;*.jpg;*.jpeg;*.tiff;*.bmp)", "*.png;*.jpg;*.jpeg;*.tiff;*.bmp"),
+            ("Imágenes", "*.png;*.jpg;*.jpeg;*.tiff;*.bmp"),
             ("Todos los archivos (*.*)", "*.*"),
         ]
-        chosen = filedialog.askopenfilename(
-            title="Seleccionar documento o imagen",
-            filetypes=filetypes,
-        )
+        chosen = filedialog.askopenfilename(title="Seleccionar documento o imagen", filetypes=filetypes)
         if chosen:
             self._set_input_file(chosen)
 
     def _browse_output(self):
         fmt = self.format_var.get()
         ext = f".{fmt}"
-        filetypes = [
-            (f"Fichero {fmt.upper()} (*{ext})", f"*{ext}"),
-            ("Todos los archivos (*.*)", "*.*"),
-        ]
         chosen = filedialog.asksaveasfilename(
             title="Guardar documento resultante como...",
             defaultextension=ext,
-            filetypes=filetypes,
+            filetypes=[(f"Fichero {fmt.upper()} (*{ext})", f"*{ext}"), ("Todos (*.*)", "*.*")],
         )
         if chosen:
             self.output_path_var.set(chosen)
@@ -338,53 +398,36 @@ class OpenOCReaderGUI:
         in_val = self.input_path_var.get().strip()
         if not in_val:
             return
-
         in_p = Path(in_val)
         fmt = self.format_var.get()
-        default_out = in_p.parent / f"{in_p.stem}_ocr.{fmt}"
-        self.output_path_var.set(str(default_out))
+        self.output_path_var.set(str(in_p.parent / f"{in_p.stem}_ocr.{fmt}"))
 
+    # ---------------- LÓGICA CONVERSIÓN ESTRUCTURAL ----------------
     def _start_conversion(self):
         in_path = self.input_path_var.get().strip()
         out_path = self.output_path_var.get().strip()
         fmt = self.format_var.get()
 
-        if not in_path:
-            messagebox.showwarning("Fichero no especificado", "Por favor, arrastra o selecciona un fichero primero.")
-            return
-
-        if not Path(in_path).exists():
-            messagebox.showerror("Error", f"No se ha encontrado el fichero:\n{in_path}")
+        if not in_path or not Path(in_path).exists():
+            messagebox.showwarning("Aviso", "Por favor, selecciona un fichero de entrada válido.")
             return
 
         if not out_path:
             self._update_default_output()
             out_path = self.output_path_var.get().strip()
 
-        # Deshabilitar controles mientras procesa
         self.btn_convert.config(state=tk.DISABLED)
         self.btn_open_file.config(state=tk.DISABLED)
         self.btn_open_folder.config(state=tk.DISABLED)
         self.progress_bar.start(10)
-        self.status_var.set(f"Procesando '{Path(in_path).name}'... Espere por favor.")
+        self.status_var.set(f"Procesando '{Path(in_path).name}'...")
 
-        thread = threading.Thread(
-            target=self._run_conversion_worker,
-            args=(in_path, out_path, fmt),
-            daemon=True,
-        )
-        thread.start()
+        threading.Thread(target=self._run_conversion_worker, args=(in_path, out_path, fmt), daemon=True).start()
 
     def _run_conversion_worker(self, in_path: str, out_path: str, fmt: str):
         try:
             start_t = time.perf_counter()
-            converter = DocumentConverter()
-            result = converter.convert(
-                input_path=in_path,
-                output_path=out_path,
-                output_format=fmt,
-                verbose=False,
-            )
+            result = DocumentConverter().convert(in_path, out_path, fmt, verbose=False)
             elapsed = time.perf_counter() - start_t
             self.root.after(0, self._on_conversion_success, result, elapsed)
         except Exception as e:
@@ -397,41 +440,144 @@ class OpenOCReaderGUI:
         self.btn_open_file.config(state=tk.NORMAL)
         self.btn_open_folder.config(state=tk.NORMAL)
 
-        msg = (
-            f"✓ Completado con éxito en {elapsed:.2f}s.\n"
-            f"Páginas: {result.total_pages} | Elementos reconocidos: {result.total_elements}\n"
+        self.status_var.set(
+            f"✓ Completado en {elapsed:.2f}s ({result.total_pages} pág., {result.total_elements} elementos).\n"
             f"Guardado en: {result.output_path}"
         )
-        self.status_var.set(msg)
-        messagebox.showinfo(
-            "Conversión completada",
-            f"¡El documento se ha digitalizado y guardado con éxito!\n\nDestino: {result.output_path}",
-        )
+        messagebox.showinfo("Completado", f"Documento guardado con éxito en:\n{result.output_path}")
 
     def _on_conversion_error(self, err_msg: str):
         self.progress_bar.stop()
         self.btn_convert.config(state=tk.NORMAL)
-        self.status_var.set(f"Error al procesar: {err_msg}")
-        messagebox.showerror("Error de conversión", f"Ocurrió un error durante el OCR:\n\n{err_msg}")
+        self.status_var.set(f"Error: {err_msg}")
+        messagebox.showerror("Error", f"Error durante el procesamiento:\n{err_msg}")
+
+    # ---------------- LÓGICA IA DOCUMENTAL ----------------
+    def _run_ai_action(self, action: str):
+        in_path = self.input_path_var.get().strip()
+        if not in_path or not Path(in_path).exists():
+            messagebox.showwarning("Aviso", "Selecciona primero un fichero de entrada arriba.")
+            return
+
+        question = self.question_var.get().strip()
+        if action == "ask" and not question:
+            messagebox.showwarning("Pregunta vacía", "Escribe la pregunta que deseas hacer sobre el documento.")
+            return
+
+        for b in self.ai_buttons:
+            b.config(state=tk.DISABLED)
+        self.ai_progress.start(10)
+        self.ai_status_var.set("Preparando análisis con IA local...")
+
+        use_handwriting = self.handwriting_var.get() or action == "transcribe"
+        threading.Thread(
+            target=self._ai_worker,
+            args=(in_path, action, question, use_handwriting),
+            daemon=True,
+        ).start()
+
+    def _ai_worker(self, in_path: str, action: str, question: str, use_handwriting: bool):
+        try:
+            from .ai import (
+                LlamaRuntimeManager,
+                DocumentAnonymizer,
+                DocumentTranslator,
+                DocumentQA,
+                HandwritingOCREngine,
+            )
+
+            def update_status(msg: str):
+                self.root.after(0, self.ai_status_var.set, msg)
+
+            runtime = LlamaRuntimeManager.get_instance()
+            cache_key = (in_path, use_handwriting)
+
+            # Extraer texto (o usar caché si ya se extrajo para este fichero y modo)
+            if self.cached_doc_key == cache_key and self.cached_doc_text is not None:
+                doc_text = self.cached_doc_text
+            else:
+                update_status("Extrayendo texto del documento...")
+                pages = DocumentLoader.load_pages(in_path)
+                texts = []
+
+                if use_handwriting:
+                    hw_engine = HandwritingOCREngine(runtime)
+                    for p in pages:
+                        update_status(f"Leyendo página {p.page_number}/{len(pages)} con Qwen3-VL (Visión)...")
+                        texts.append(hw_engine.transcribe_image(p.image, progress_cb=update_status))
+                else:
+                    ocr = OCREngine.get_instance()
+                    for p in pages:
+                        boxes = ocr.process_image(p.image)
+                        lines = _group_boxes_into_lines(boxes)
+                        texts.append("\n".join(" ".join(b.text for b in line) for line in lines))
+
+                doc_text = "\n\n".join(texts).strip()
+                self.cached_doc_text = doc_text
+                self.cached_doc_key = cache_key
+
+            if action == "transcribe":
+                output_text = doc_text
+            elif action == "summarize":
+                output_text = DocumentQA(runtime).summarize(doc_text, progress_cb=update_status)
+            elif action == "translate":
+                output_text = DocumentTranslator(runtime).translate_to_spanish(doc_text, progress_cb=update_status)
+            elif action == "anonymize":
+                output_text = DocumentAnonymizer(runtime).anonymize(doc_text, progress_cb=update_status)
+            elif action == "ask":
+                output_text = DocumentQA(runtime).ask(doc_text, question, progress_cb=update_status)
+            else:
+                output_text = doc_text
+
+            self.root.after(0, self._on_ai_success, output_text)
+        except Exception as e:
+            self.root.after(0, self._on_ai_error, str(e))
+
+    def _on_ai_success(self, result_text: str):
+        self.ai_progress.stop()
+        for b in self.ai_buttons:
+            b.config(state=tk.NORMAL)
+        self.ai_output_text.delete("1.0", tk.END)
+        self.ai_output_text.insert("1.0", result_text)
+        self.ai_status_var.set("✓ Proceso de IA completado con éxito.")
+
+    def _on_ai_error(self, err_msg: str):
+        self.ai_progress.stop()
+        for b in self.ai_buttons:
+            b.config(state=tk.NORMAL)
+        self.ai_status_var.set(f"Error en IA: {err_msg}")
+        messagebox.showerror("Error de IA", f"Ocurrió un error al ejecutar la IA:\n\n{err_msg}")
+
+    def _copy_ai_output(self):
+        content = self.ai_output_text.get("1.0", tk.END).strip()
+        if content:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(content)
+            self.ai_status_var.set("✓ Resultado copiado al portapapeles.")
+
+    def _save_ai_output(self):
+        content = self.ai_output_text.get("1.0", tk.END).strip()
+        if not content:
+            return
+        chosen = filedialog.asksaveasfilename(
+            title="Guardar resultado de IA",
+            defaultextension=".txt",
+            filetypes=[("Archivo de texto (*.txt)", "*.txt"), ("Markdown (*.md)", "*.md")],
+        )
+        if chosen:
+            Path(chosen).write_text(content, encoding="utf-8")
+            self.ai_status_var.set(f"✓ Guardado en: {chosen}")
 
     def _open_file(self):
         if self.last_generated_file and Path(self.last_generated_file).exists():
-            try:
-                self._open_path_crossplatform(self.last_generated_file)
-            except Exception as e:
-                messagebox.showerror("Error", f"No se pudo abrir el archivo:\n{e}")
+            self._open_path_crossplatform(self.last_generated_file)
 
     def _open_folder(self):
         if self.last_generated_file:
-            folder = str(Path(self.last_generated_file).parent)
-            try:
-                self._open_path_crossplatform(folder)
-            except Exception as e:
-                messagebox.showerror("Error", f"No se pudo abrir la carpeta:\n{e}")
+            self._open_path_crossplatform(str(Path(self.last_generated_file).parent))
 
     @staticmethod
     def _open_path_crossplatform(path: str):
-        """Abre un archivo o carpeta en Windows, Linux o macOS."""
         if sys.platform == "win32":
             os.startfile(path)
         elif sys.platform == "darwin":
@@ -441,9 +587,8 @@ class OpenOCReaderGUI:
 
 
 def launch_gui():
-    """Punto de entrada para iniciar la aplicación gráfica."""
     root = tk.Tk()
-    app = OpenOCReaderGUI(root)
+    OpenOCReaderGUI(root)
     root.mainloop()
 
 
