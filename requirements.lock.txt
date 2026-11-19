@@ -2,10 +2,10 @@
 # Generado UTC: 2026-11-19T19:58:17.242572+00:00
 
 rapidocr-onnxruntime==1.4.4
-pillow==12.1.1
+pillow==13.0.0
 opencv-python==4.13.0.92
 numpy==2.4.0
-pypdf==6.7.5
+pypdf==6.21.4
 pypdfium2==5.15.2
 reportlab==4.2.5
 python-docx==1.2.0
@@ -17,4 +17,4 @@ requests==2.33.1
 huggingface_hub==1.19.0
 fastapi==0.135.1
 uvicorn==0.41.0
-python-multipart==0.0.22
+python-multipart==0.0.31
