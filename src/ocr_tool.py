@@ -104,7 +104,12 @@ def main():
     parser.add_argument("--clear-cache", action="store_true", help="Limpia cachés y archivos temporales.")
     parser.add_argument("--check-update", action="store_true", help="Comprueba si hay una nueva versión en GitHub.")
     parser.add_argument("--update", action="store_true", help="Actualiza el proyecto desde GitHub sin desinstalar.")
-    parser.add_argument("-v", "--version", action="version", version=f"Open OCReader v{__version__}")
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"Open OCReader v{__version__} | Software Libre GNU GPL v3.0 (Copyleft) | 100% Local (EU AI Act / RGPD / ENS)",
+    )
 
     args = parser.parse_args()
 

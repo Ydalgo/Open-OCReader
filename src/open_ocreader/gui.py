@@ -125,10 +125,11 @@ class OpenOCReaderGUI:
 
         tools_row = ttk.Frame(title_row)
         tools_row.pack(side=tk.RIGHT)
+        ttk.Button(tools_row, text="⚖️ Legal / IA", command=self._show_legal_compliance).pack(side=tk.LEFT, padx=2)
         ttk.Button(tools_row, text="🔄 Actualizar", command=self._check_updates_gui).pack(side=tk.LEFT, padx=2)
         ttk.Button(tools_row, text="🧹 Caché", command=self._clear_cache_gui).pack(side=tk.LEFT, padx=2)
         ttk.Button(tools_row, text="🗑️ Logs", command=self._clear_logs_gui).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tools_row, text="📋 Ver Logs", command=self._open_logs).pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Button(tools_row, text="📋 Logs", command=self._open_logs).pack(side=tk.LEFT, padx=(2, 0))
 
         ttk.Label(
             header_frame,
@@ -182,6 +183,15 @@ class OpenOCReaderGUI:
 
         self._build_convert_tab()
         self._build_ai_tab()
+
+        # Pie informativo permanente: licencia libre y aviso normativo de IA
+        footer_lbl = ttk.Label(
+            main_frame,
+            text="Software Libre GNU GPL v3.0 (atribución y copyleft obligatorios) • 100% Local (EU AI Act / RGPD / ENS) • Revisar salidas de IA.",
+            font=("Segoe UI", 8),
+            foreground="#555555",
+        )
+        footer_lbl.pack(anchor="w", pady=(6, 0))
 
     def _build_convert_tab(self):
         # Formato de salida
@@ -742,6 +752,59 @@ class OpenOCReaderGUI:
             self._open_path_crossplatform(str(log_file))
         else:
             self._open_path_crossplatform(str(logs_dir))
+
+    def _show_legal_compliance(self):
+        """Muestra el aviso de cumplimiento de normativas de IA, privacidad y licencia libre GNU GPL v3.0."""
+        win = tk.Toplevel(self.root)
+        win.title("Cumplimiento Normativo de IA y Licencia Libre — Open OCReader")
+        win.geometry("660x520")
+        win.transient(self.root)
+
+        frame = ttk.Frame(win, padding="14")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        scroll = ttk.Scrollbar(frame)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        txt = tk.Text(frame, wrap=tk.WORD, font=("Segoe UI", 9), yscrollcommand=scroll.set, padx=10, pady=10)
+        txt.pack(fill=tk.BOTH, expand=True)
+        scroll.config(command=txt.yview)
+
+        info_text = (
+            "1. CUMPLIMIENTO DE NORMATIVAS DE IA Y PRIVACIDAD\n"
+            "============================================================\n"
+            "Open OCReader opera 100% EN LOCAL (offline / on-premise), sin enviar\n"
+            "documentos ni datos personales a servidores externos ni a la nube.\n\n"
+            "• Reglamento Europeo de IA (EU AI Act — Reglamento (UE) 2024/1689):\n"
+            "  Herramienta auxiliar de productividad documental (riesgo mínimo/limitado).\n"
+            "  Se separa el OCR determinista (RapidOCR) de la IA generativa (Qwen3-VL).\n"
+            "  IMPORTANTE: Toda salida de IA (resumen, traducción, Q&A o anonimización)\n"
+            "  requiere supervisión humana (Human-in-the-Loop) antes de su uso oficial.\n\n"
+            "• RGPD (UE) y LOPDGDD (España):\n"
+            "  Cumple privacidad desde el diseño (Art. 25) y evita transferencias\n"
+            "  internacionales de datos. La anonimización asistida debe validarse\n"
+            "  siempre por el responsable del tratamiento antes de publicar documentos.\n\n"
+            "• Administración Pública y ENS (Esquema Nacional de Seguridad):\n"
+            "  Apto para redes aisladas (air-gapped), con verificación SHA-256,\n"
+            "  logs auditables y API autenticada con clave de acceso.\n\n"
+            "• Estándares Internacionales (NIST AI RMF, HIPAA, CCPA, ISO/IEC 42001):\n"
+            "  Arquitectura abierta, auditable y libre de telemetría.\n\n"
+            "2. LICENCIA DE SOFTWARE LIBRE (GNU GPL v3.0 — COPYLEFT)\n"
+            "============================================================\n"
+            "Open OCReader es Código Libre bajo GNU General Public License v3.0\n"
+            "(https://www.gnu.org/licenses/gpl-3.0.html).\n\n"
+            "• Uso libre: Permitido en ámbito personal, empresas y Administración.\n"
+            "• Atribución obligatoria: Debe mantenerse siempre el reconocimiento\n"
+            "  expreso a los autores originales (Ydalgo y colaboradores).\n"
+            "• Copyleft fuerte (Compartir Igual): Si reproduces, modificas o creas\n"
+            "  una versión derivada de este software, DEBES distribuirla también\n"
+            "  como código libre bajo la misma licencia GNU GPL v3.0.\n"
+            "  No está permitido cerrar el código en un producto privativo.\n"
+        )
+        txt.insert("1.0", info_text)
+        txt.config(state=tk.DISABLED)
+
+        ttk.Button(win, text="Cerrar", command=win.destroy).pack(pady=(6, 10))
 
     def _clear_cache_gui(self):
         from .maintenance import clear_cache
