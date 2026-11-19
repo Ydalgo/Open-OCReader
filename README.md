@@ -70,6 +70,20 @@ Consulta el detalle completo en **[docs/CUMPLIMIENTO_IA_Y_LICENCIA.md](docs/CUMP
 
 ---
 
+## 🖥️ Requisitos de Hardware (Independientes por Modo)
+
+Como los dos pilares de **Open OCReader** funcionan de manera independiente, los requisitos dependen de si solo necesitas digitalización rápida o si además activas la IA local:
+
+| Componente | Modo 1: Digitalización Rápida *(RapidOCR)* | Modo 2: IA Local y Manuscritos *(Qwen3-VL-4B)* |
+| :--- | :--- | :--- |
+| **Procesador (CPU)** | Cualquier x64 / ARM64 de 2 núcleos | Mínimo 4 núcleos / **Recomendado 8+ núcleos** |
+| **Memoria RAM** | Mínimo **2 GB** / Recomendado 4 GB | Mínimo **8 GB** (~5 GB libres) / **Recomendado 16 GB** |
+| **Tarjeta Gráfica (GPU)** | **No requerida** (100% CPU en ~1s/pág.) | Opcional (corre en CPU). **Recomendada GPU Vulkan** (NVIDIA/AMD/Intel ≥6 GB) o **Apple Metal** |
+| **Espacio en Disco** | ~350 MB | **~4 GB adicionales** (`models/` ~2,9 GB + `bin/` ~30 MB) |
+| **Conexión a Internet** | Solo para instalar | Solo en la primera descarga del modelo (luego **100% offline**) |
+
+---
+
 ## 📥 Instalación y Uso según tu Sistema Operativo
 
 ### 🪟 Windows
