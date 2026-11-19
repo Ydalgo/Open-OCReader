@@ -54,8 +54,8 @@ class OpenOCReaderGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Open OCReader - Digitalización e IA Documental 100% Local")
-        self.root.geometry("760x740")
-        self.root.minsize(680, 660)
+        self.root.geometry("860x780")
+        self.root.minsize(820, 700)
         self._window_icon_ref = None
         self._apply_window_icon()
 

@@ -17,6 +17,14 @@
 
 ---
 
+## 🖼️ Capturas de Pantalla
+
+| Conversión Estructural Rápida (PDF Sandwich, Word, Excel) | IA Local y Manuscritos (`Qwen3-VL-4B` vía `llama.cpp`) |
+| :---: | :---: |
+| ![Conversión Estructural](docs/screenshots/gui_conversion.png) | ![IA Local y Manuscritos](docs/screenshots/gui_ia.png) |
+
+---
+
 ## 📁 Estructura del Proyecto
 
 ```text
@@ -194,7 +202,13 @@ python src/ocr_tool.py --update
 * **Copyleft fuerte (Compartir Igual)**: Si reproduces, modificas o distribuyes una versión basada en Open OCReader, **estás obligado a publicar tu versión derivada también como código libre bajo la misma licencia GNU GPL v3.0**. No se permite cerrar el código en un producto privativo.
 
 * **Autores**:
-  * **Ydalgo** — Creador y mantenedor del proyecto
-  * **Antigravity** (Google DeepMind) — Asistente de arquitectura, seguridad y desarrollo
+  * **[Ydalgo](https://github.com/Ydalgo)** — Creador y mantenedor del proyecto
+  * **[Antigravity](https://deepmind.google/)** (Google DeepMind) — Asistente de arquitectura, seguridad y desarrollo
 
-Consulta la guía técnica en [docs/INSTALACION_Y_USO.md](docs/INSTALACION_Y_USO.md), cumplimiento en [docs/CUMPLIMIENTO_IA_Y_LICENCIA.md](docs/CUMPLIMIENTO_IA_Y_LICENCIA.md) y seguridad en [SECURITY.md](SECURITY.md).
+* **Documentación y Colaboración**:
+  * Guía de instalación: [docs/INSTALACION_Y_USO.md](docs/INSTALACION_Y_USO.md)
+  * Despliegue de servidor API: [docs/GUIA_DESPLIEGUE_SERVIDOR.md](docs/GUIA_DESPLIEGUE_SERVIDOR.md)
+  * Preguntas Frecuentes (FAQ): [docs/FAQ.md](docs/FAQ.md)
+  * Cumplimiento IA y Licencia: [docs/CUMPLIMIENTO_IA_Y_LICENCIA.md](docs/CUMPLIMIENTO_IA_Y_LICENCIA.md)
+  * Seguridad: [SECURITY.md](SECURITY.md) | Historial de cambios: [CHANGELOG.md](CHANGELOG.md)
+  * ¿Quieres colaborar o reportar un fallo? Abre un [Issue](https://github.com/Ydalgo/Open-OCReader/issues) o una [Pull Request](https://github.com/Ydalgo/Open-OCReader/pulls).
