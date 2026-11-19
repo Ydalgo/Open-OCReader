@@ -42,6 +42,14 @@ if (Test-Path (Join-Path $SrcBinRoot "win-cpu-x64")) {
 $SrcModels = Join-Path $OfflineRepo "models"
 $ModelsToCopy = @()
 
+$KnownHashes = @{
+    "Qwen3VL-4B-Instruct-Q4_K_M.gguf"     = "66358cb18bb6b3b1b6675aa412c7a88ef01d228f481184d13668e5201c730a0a"
+    "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf" = "30ba2c7dd3127a4561b6cba9d13d0f711c91bdb38742e2f56d73c8cb596bd06d"
+    "Qwen3VL-2B-Instruct-Q4_K_M.gguf"     = "089d75c52f4b7ffc56ba998ffc50aae89fcafc755f9e7208aacca281dca6c2ae"
+    "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf" = "f9a68fabba69c3b81e153367b2c7521030b0fa8bb0de400c9599c8e6725f9c82"
+    "bge-m3-Q4_K_M.gguf"                  = "6d39681b26c61279ac1f82db35a04a05009e94c415b51c858ff571489a82fc06"
+}
+
 if ($RamGB -ge 10.0) {
     $ModelsToCopy += "Qwen3VL-4B-Instruct-Q4_K_M.gguf"
     $ModelsToCopy += "mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"
@@ -59,8 +67,24 @@ if ($RamGB -ge 10.0) {
 foreach ($mf in $ModelsToCopy) {
     $srcF = Join-Path $SrcModels $mf
     if (Test-Path $srcF) {
+        $expected = $KnownHashes[$mf]
+        if ($expected) {
+            $actual = (Get-FileHash -Path $srcF -Algorithm SHA256).Hash.ToLower()
+            if ($actual -ne $expected.ToLower()) {
+                Write-Warning "Fallo de verificación SHA-256 en $mf ($actual != $expected). Omitiendo copia."
+                continue
+            }
+        }
         Copy-Item -Path $srcF -Destination (Join-Path $TargetModels $mf) -Force
     }
+}
+
+# 4. Endurecer permisos ACL en C:\ProgramData\Open OCReader
+# Administradores y SYSTEM control total; Usuarios estándar solo lectura y ejecución (evita DLL/Model Hijacking)
+try {
+    & icacls.exe "$TargetRoot" /inheritance:r /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /grant "Users:(OI)(CI)RX" | Out-Null
+} catch {
+    # Ignorar si no se disponen de privilegios para alterar ACLs
 }
 
 exit 0

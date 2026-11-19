@@ -16,8 +16,11 @@ import pikepdf
 import pymupdf as fitz
 from .formats.pdf_builder import COMPRESSION_PRESETS, _apply_pdfa_metadata_and_profile
 from .logger import get_logger
+from .security import SecurityError, validate_input_file
 
 logger = get_logger("pdf_tools")
+
+MAX_PDF_TOOL_PAGES = 500
 
 WATERMARK_OCG_KEYWORDS = (
     "watermark", "marca", "agua", "fondo", "background",
@@ -36,10 +39,16 @@ def unlock_pdf(
     y/o eliminando el cifrado de apertura si se facilita la contraseña correcta.
     """
     in_p = Path(input_path)
+    validate_input_file(in_p)
     out_p = Path(output_path) if output_path else in_p.parent / f"{in_p.stem}_desbloqueado.pdf"
 
     try:
         with pikepdf.open(str(in_p), password=password or "") as pdf:
+            if len(pdf.pages) > MAX_PDF_TOOL_PAGES:
+                raise SecurityError(
+                    f"El documento supera el límite de seguridad de {MAX_PDF_TOOL_PAGES} páginas "
+                    f"({len(pdf.pages)} páginas detectadas)."
+                )
             was_encrypted = pdf.is_encrypted
             # Eliminar permisos de modificación restrictivos si existieran
             if "/Perms" in pdf.Root:
@@ -72,12 +81,18 @@ def remove_signatures(
     y anotaciones visuales de firma (/Widget asociadas a campos /Sig).
     """
     in_p = Path(input_path)
+    validate_input_file(in_p)
     out_p = Path(output_path) if output_path else in_p.parent / f"{in_p.stem}_sin_firmas.pdf"
 
     removed_fields = 0
     removed_annots = 0
 
     with pikepdf.open(str(in_p)) as pdf:
+        if len(pdf.pages) > MAX_PDF_TOOL_PAGES:
+            raise SecurityError(
+                f"El documento supera el límite de seguridad de {MAX_PDF_TOOL_PAGES} páginas "
+                f"({len(pdf.pages)} páginas detectadas)."
+            )
         # 1. Quitar bloqueos de permisos de firma (DocMDP / UR3)
         if "/Perms" in pdf.Root:
             del pdf.Root["/Perms"]
@@ -172,6 +187,7 @@ def remove_watermarks(
       - Limpieza OpenCV para marcas de agua grises/coloreadas quemadas en escaneos.
     """
     in_p = Path(input_path)
+    validate_input_file(in_p)
     out_p = Path(output_path) if output_path else in_p.parent / f"{in_p.stem}_sin_marcas.pdf"
 
     removed_annots = 0
@@ -180,6 +196,11 @@ def remove_watermarks(
 
     doc = fitz.open(str(in_p))
     try:
+        if len(doc) > MAX_PDF_TOOL_PAGES:
+            raise SecurityError(
+                f"El documento supera el límite de seguridad de {MAX_PDF_TOOL_PAGES} páginas "
+                f"({len(doc)} páginas detectadas)."
+            )
         # 1. Ocultar capas opcionales (OCG) con nombre de marca de agua
         if remove_ocg:
             ocgs = doc.get_ocgs()
@@ -262,6 +283,7 @@ def optimize_pdf(
     Comprime un PDF, lo convierte opcionalmente a escala de grises y/o a estándar PDF/A-2b.
     """
     in_p = Path(input_path)
+    validate_input_file(in_p)
     suffix = "_pdfa" if pdfa else "_optimizado"
     out_p = Path(output_path) if output_path else in_p.parent / f"{in_p.stem}{suffix}.pdf"
 
@@ -269,6 +291,12 @@ def optimize_pdf(
     orig_size = in_p.stat().st_size
 
     doc = fitz.open(str(in_p))
+    if len(doc) > MAX_PDF_TOOL_PAGES:
+        doc.close()
+        raise SecurityError(
+            f"El documento supera el límite de seguridad de {MAX_PDF_TOOL_PAGES} páginas "
+            f"({len(doc)} páginas detectadas)."
+        )
     out_doc = fitz.open()
     try:
         dpi = 150 if compression == "compact" else (180 if compression == "balanced" else 220)

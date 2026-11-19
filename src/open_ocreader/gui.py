@@ -1964,10 +1964,10 @@ class OpenOCReaderGUI:
             self._open_path_crossplatform(str(logs_dir))
 
     def _show_legal_compliance(self):
-        """Muestra el aviso de cumplimiento de normativas de IA, privacidad y licencia libre GNU GPL v3.0."""
+        """Muestra el aviso de cumplimiento de normativas de IA, privacidad, GuarIdA y licencia libre GNU GPL v3.0."""
         win = tk.Toplevel(self.root)
-        win.title("Cumplimiento Normativo de IA y Licencia Libre — Open OCReader")
-        win.geometry("660x520")
+        win.title("Cumplimiento Normativo de IA, Créditos GuarIdA y Licencia Libre — Open OCReader")
+        win.geometry("700x580")
         win.transient(self.root)
 
         frame = ttk.Frame(win, padding="14")
@@ -2009,7 +2009,24 @@ class OpenOCReaderGUI:
             "• Copyleft fuerte (Compartir Igual): Si reproduces, modificas o creas\n"
             "  una versión derivada de este software, DEBES distribuirla también\n"
             "  como código libre bajo la misma licencia GNU GPL v3.0.\n"
-            "  No está permitido cerrar el código en un producto privativo.\n"
+            "  No está permitido cerrar el código en un producto privativo.\n\n"
+            "3. CRÉDITOS Y PROYECTO HERMANO: GUARIDA\n"
+            "============================================================\n"
+            "Gran parte de la arquitectura técnica, la optimización de hardware\n"
+            "y la ingeniería de contexto de Open OCReader provienen directamente de\n"
+            "las investigaciones, decisiones técnicas y código del proyecto hermano:\n\n"
+            "🛡️ GUARIDA: Guardián de Identidad y Asistencia con IA Local Soberana\n"
+            "Repositorio oficial: https://github.com/Ydalgo/GuarIdA\n\n"
+            "Componentes y estructuras transferidas desde GuarIdA:\n"
+            "• Árbol de Nodos Documental (AST): Descomposición jerárquica de documentos\n"
+            "  (secciones, tablas y bloques) eliminando el límite de contexto del LLM.\n"
+            "• Compresión de Vocabulario BPE: Minificación de tokens para alta densidad.\n"
+            "• Recuperación Híbrida RRF: Fusión de ranking léxico BM25 + Embeddings BGE-M3.\n"
+            "• Persistencia Segregada SQLite WAL: Con compresión zstd/zlib por SHA-256.\n"
+            "• Observador de Hardware en tiempo real y perfiles dinámicos adaptativos.\n"
+            "• Reutilización de KV Cache (cache_prompt) para respuestas inmediatas.\n\n"
+            "👉 ¡Te invitamos a conocer, seguir y colaborar en el proyecto GuarIdA!\n"
+            "Actualmente en desarrollo activo para la soberanía y privacidad documental.\n"
         )
         txt.insert("1.0", info_text)
         txt.config(state=tk.DISABLED)
@@ -2022,6 +2039,11 @@ class OpenOCReaderGUI:
             text="📑 Generar Informe de Gobernanza IA (1 clic)",
             command=lambda: self._export_governance_report(win),
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            btn_bar,
+            text="🛡️ Conocer proyecto GuarIdA (GitHub)",
+            command=lambda: webbrowser.open("https://github.com/Ydalgo/GuarIdA"),
+        ).pack(side=tk.LEFT, padx=8)
         ttk.Button(btn_bar, text="Cerrar", command=win.destroy).pack(side=tk.RIGHT)
 
     def _export_governance_report(self, parent_win=None):

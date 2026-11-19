@@ -40,6 +40,23 @@ _MAGIC_SIGNATURES = (
 )
 
 
+def _check_magic_for_extension(ext: str, head: bytes) -> bool:
+    """Verifica de forma estricta la firma mágica según la extensión declarada."""
+    if ext == ".pdf":
+        return head.startswith(b"%PDF-")
+    if ext == ".png":
+        return head.startswith(b"\x89PNG\r\n\x1a\n")
+    if ext in (".jpg", ".jpeg"):
+        return head.startswith(b"\xff\xd8\xff")
+    if ext in (".tif", ".tiff"):
+        return head.startswith((b"II*\x00", b"MM\x00*"))
+    if ext == ".bmp":
+        return head.startswith(b"BM")
+    if ext == ".webp":
+        return head.startswith(b"RIFF") and len(head) >= 12 and head[8:12] == b"WEBP"
+    return False
+
+
 class SecurityError(Exception):
     """Error lanzado cuando una comprobación de seguridad falla."""
 
@@ -170,8 +187,10 @@ def validate_input_file(path: Path, max_bytes: int = MAX_INPUT_FILE_BYTES) -> No
         raise SecurityError(f"El fichero supera el tamaño máximo permitido ({max_bytes // (1024**2)} MB).")
     with open(path, "rb") as f:
         head = f.read(16)
-    if not any(head.startswith(sig) for sig in _MAGIC_SIGNATURES):
-        raise SecurityError("El contenido del fichero no corresponde a un PDF o imagen válidos.")
+    if not _check_magic_for_extension(ext, head):
+        raise SecurityError(
+            f"El contenido del fichero no coincide con una cabecera binaria válida para la extensión '{ext}'."
+        )
 
 
 def sanitize_filename(name: str, default: str = "documento") -> str:
@@ -201,3 +220,36 @@ def iter_safe_lines(lines: Iterable[str], max_chars: int = 200_000) -> str:
             break
         out.append(line)
     return "\n".join(out)
+
+
+# ---------------------------------------------------------------- Sanitización contra Indirect Prompt Injection
+_INJECTION_TOKENS = (
+    ("<|im_start|>", "< |im_start| >"),
+    ("<|im_end|>", "< |im_end| >"),
+    ("<|system|>", "< |system| >"),
+    ("<|user|>", "< |user| >"),
+    ("<|assistant|>", "< |assistant| >"),
+    ("<|endoftext|>", "< |endoftext| >"),
+    ("=== DOCUMENT", "== = DOCUMENT"),
+    ("=== END", "== = END"),
+    ("### System:", "## # System:"),
+    ("### Human:", "## # Human:"),
+    ("### Assistant:", "## # Assistant:"),
+    ("[SYSTEM]", "[ SYSTEM ]"),
+    ("[/SYSTEM]", "[ /SYSTEM ]"),
+)
+
+
+def sanitize_llm_input(text: str) -> str:
+    """
+    Neutraliza secuencias de escape y delimitadores que podrían causar
+    inyección indirecta de prompts (Indirect Prompt Injection) a través del texto
+    extraído de documentos no confiables.
+    """
+    if not text:
+        return ""
+    sanitized = text
+    for token, replacement in _INJECTION_TOKENS:
+        if token in sanitized:
+            sanitized = sanitized.replace(token, replacement)
+    return sanitized

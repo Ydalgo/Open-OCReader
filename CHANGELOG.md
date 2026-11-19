@@ -4,6 +4,38 @@ Todos los cambios notables de este proyecto se documentan en este fichero.
 
 ---
 
+## [0.3.1] - 2026-11-20
+
+### Añadido y Reconocimientos
+* **Reconocimiento y Créditos al Proyecto Hermano GuarIdA**:
+  * Inclusión de atribución formal y detallada en `README.md`, `docs/CUMPLIMIENTO_IA_Y_LICENCIA.md` y la ventana `⚖️ Legal / IA` de la interfaz gráfica.
+  * Desglose explícito de los componentes estructurales y algoritmos adaptados del proyecto hermano **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**: Árbol de Nodos Documental (AST), Compresión BPE/Minificación, Búsqueda Híbrida RRF (BM25Okapi + BGE-M3), Persistencia Segregada SQLite WAL comprimida por SHA-256, Observación Dinámica de Hardware y Reutilización de KV Cache (`cache_prompt`).
+  * Enlace visible y botón interactivo en la GUI para invitar a la comunidad a conocer, seguir y colaborar en el proyecto GuarIdA.
+
+### Seguridad y Auditoría Completa
+* **Mitigación contra Inyección Indirecta de Prompts (Indirect Prompt Injection)**:
+  * Nueva función `sanitize_llm_input` que neutraliza delimitadores y tokens de control (`===`, `<|im_start|>`, `<|im_end|>`, etc.) en textos de documentos no confiables antes de inyectarlos al LLM.
+  * Instrucciones defensivas en el system prompt de `document_qa.py`, `multi_doc_chat.py` y `translator.py`.
+* **Verificación estricta de Firmas Mágicas (Magic Bytes)**:
+  * Comprobación estricta por extensión en `security.py`, requiriendo cabecera dual `RIFF....WEBP` para imágenes WebP y rechazando contenedores multimedia ajenos.
+* **Blindaje de Actualizador In-Place (`updater.py`)**:
+  * Límite defensivo de 50 MB en streaming contra bombas de descompresión / DoS, validación opcional de hash SHA-256 y bloqueo estricto de binarios ejecutables (`.exe`, `.dll`, `.so`, `.bin`).
+* **Protección DoS en Herramientas PDF (`pdf_tools.py`)**:
+  * Validación obligatoria de archivos con `validate_input_file()` y límite de seguridad de 500 páginas máximas en desbloqueo, firmas, marcas de agua y optimización.
+* **Aprovisionamiento Offline MSI Endurecido (`provision_from_offline_repo.ps1`)**:
+  * Validación criptográfica SHA-256 (`Get-FileHash`) de cada modelo GGUF antes de copiar a `ProgramData`.
+  * Fijación de permisos ACL restrictivos con `icacls` (solo lectura/ejecución para usuarios estándar, impidiendo secuestro de binarios o DLLs).
+* **Integridad de Binarios llama.cpp (`runtime_manager.py`)**:
+  * Extracción de digest SHA-256 de notas de versión y soporte para `OPEN_OCREADER_STRICT_VERIFY=1`.
+* **Endurecimiento de Servidor API REST (`server/api.py`)**:
+  * Soporte configurable para proxies inversos (`OPEN_OCREADER_TRUST_PROXY=1`) mediante `X-Real-IP` y `X-Forwarded-For`.
+  * Purga periódica de buckets inactivos en el middleware de rate-limiting para evitar fugas de memoria en DDoS.
+  * Ofuscación de telemetría interna de hardware en `/api/v1/health` público si el cliente no está autenticado.
+* **Servicio Linux endurecido (`scripts/linux/open-ocreader.service`)**:
+  * Inclusión de `cache/` y `projects/` en `ReadWritePaths=` para garantizar persistencia de SQLite WAL en sistemas con `ProtectSystem=strict`.
+
+---
+
 ## [0.3.0] - 2026-11-19
 
 ### Añadido

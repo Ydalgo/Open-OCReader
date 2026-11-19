@@ -141,7 +141,16 @@ def create_app() -> FastAPI:
 
     @api.middleware("http")
     async def security_and_rate_limit_middleware(request: Request, call_next):
+        # Soporte seguro para proxy inverso si se habilita OPEN_OCREADER_TRUST_PROXY=1
         client_ip = request.client.host if request.client else "unknown"
+        if os.environ.get("OPEN_OCREADER_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes"):
+            x_forwarded = request.headers.get("X-Forwarded-For")
+            x_real = request.headers.get("X-Real-IP")
+            if x_real:
+                client_ip = x_real.strip()
+            elif x_forwarded:
+                client_ip = x_forwarded.split(",")[0].strip()
+
         now = time.monotonic()
         bucket = _rate_buckets[client_ip]
         while bucket and now - bucket[0] > _RATE_LIMIT_WINDOW_S:
@@ -153,6 +162,12 @@ def create_app() -> FastAPI:
             )
         bucket.append(now)
 
+        # Purga periódica para evitar fugas de memoria en DDoS con IPs aleatorias
+        if len(_rate_buckets) > 2000:
+            stale = [ip for ip, b in _rate_buckets.items() if not b or (now - b[-1] > _RATE_LIMIT_WINDOW_S * 2)]
+            for ip in stale:
+                _rate_buckets.pop(ip, None)
+
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -161,15 +176,33 @@ def create_app() -> FastAPI:
         return response
 
     @api.get("/api/v1/health")
-    def health_check():
-        from ..ai import LlamaRuntimeManager
-        rt = LlamaRuntimeManager.get_instance()
-        return {
+    def health_check(
+        x_api_key: Optional[str] = Header(default=None),
+        authorization: Optional[str] = Header(default=None),
+    ):
+        expected_key = os.environ.get("OPEN_OCREADER_API_KEY", "").strip()
+        is_auth = False
+        if not expected_key:
+            is_auth = True
+        else:
+            provided = x_api_key
+            if not provided and authorization and authorization.lower().startswith("bearer "):
+                provided = authorization[7:].strip()
+            if provided and constant_time_equals(provided, expected_key):
+                is_auth = True
+
+        base_resp = {
             "status": "ok",
             "version": __version__,
-            "auth_required": bool(os.environ.get("OPEN_OCREADER_API_KEY", "").strip()),
+            "auth_required": bool(expected_key),
             "pdf_tools_enabled": not _is_pdf_tools_disabled(),
-            "hardware": {
+        }
+
+        # Solo exponer telemetría y detalles internos de hardware si está autenticado o la API es pública
+        if is_auth:
+            from ..ai import LlamaRuntimeManager
+            rt = LlamaRuntimeManager.get_instance()
+            base_resp["hardware"] = {
                 "os": rt.hw.os_name,
                 "arch": rt.hw.arch,
                 "backend": rt.hw.backend,
@@ -179,9 +212,10 @@ def create_app() -> FastAPI:
                 "ai_tier": rt.tier.tier_name,
                 "vlm_model": rt.tier.vlm_label,
                 "embed_model": rt.tier.embed_label,
-            },
-            "ai_models_ready": rt.is_models_present(),
-        }
+            }
+            base_resp["ai_models_ready"] = rt.is_models_present()
+
+        return base_resp
 
     @api.get("/api/v1/governance", dependencies=[Depends(_verify_api_key)])
     def governance_report():

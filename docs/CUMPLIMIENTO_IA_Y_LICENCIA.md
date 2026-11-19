@@ -69,3 +69,30 @@ La pestaña **🛠️ Herramientas PDF** (desbloqueo de restricciones, eliminaci
 3. **Copyleft fuerte (Compartir Igual)**: Si modificas el programa, integras mejoras o distribuyes una versión basada en Open OCReader, **estás legalmente obligado a publicar el código fuente de tu versión derivada también como software libre bajo la misma licencia GNU GPL v3.0**. No está permitido cerrar el código ni apropiarse del proyecto en un producto privativo.
 
 *(Nota sobre componentes de terceros: los modelos GGUF `Qwen3-VL` y `BGE-M3`, los binarios de `llama.cpp` y las librerías auxiliares se rigen por sus respectivas licencias abiertas oficiales: Apache 2.0, MIT, MPL-2.0 y AGPL-3.0, todas compatibles con la distribución bajo GNU GPL v3.0).*
+
+---
+
+## 5. Reconocimiento y Créditos al Proyecto Hermano: GuarIdA
+
+Gran parte de la arquitectura técnica, la ingeniería de contexto sin límites y la optimización de inferencia local de **Open OCReader** son adaptaciones directas de las soluciones, registros de decisiones de arquitectura (ADRs) y código fuente del proyecto:
+
+🛡️ **[GuarIdA (Guardián de Identidad y Asistencia con IA Local)](https://github.com/Ydalgo/GuarIdA)**
+* **Enlace al repositorio oficial:** [https://github.com/Ydalgo/GuarIdA](https://github.com/Ydalgo/GuarIdA)
+* **Autoría original:** Ydalgo (Software Libre bajo GPLv3).
+
+### Módulos y Conceptos Transferidos desde GuarIdA:
+1. **Árbol de Nodos Documental (AST)** (`src/open_ocreader/ai/doc_tree.py`):
+   Diseñado originalmente en los ADRs 0009 y 0012 de GuarIdA. Descompone documentos masivos en una estructura de nodos jerárquicos con rutas de sección (`Pág. X > Sección Y > Subsección Z`) para recuperar únicamente los fragmentos exactos que resuelven la pregunta del usuario sin superar la ventana de contexto.
+2. **Compresión de Vocabulario BPE y Minificación** (`src/open_ocreader/ai/chunking.py`):
+   Algoritmo de condensación semántica que reduce los espacios en blanco, estandariza saltos de línea y elimina ruido tipográfico, multiplicando la capacidad efectiva de tokens disponibles en el LLM.
+3. **Recuperación Híbrida RRF (Reciprocal Rank Fusion)** (`src/open_ocreader/ai/multi_doc_chat.py`):
+   Fusión armónica del algoritmo probabilístico léxico BM25Okapi y el espacio vectorial denso multilingüe BGE-M3 para una precisión quirúrgica en búsquedas documentales cruzadas.
+4. **Persistencia Segregada en SQLite WAL con Compresión** (`src/open_ocreader/ai/doc_cache.py`):
+   Arquitectura de almacenamiento desacoplada con transacciones ACID en modo WAL y compresión `zstd`/`zlib`, indexando cada fichero por su digest SHA-256 para evitar reprocesamientos innecesarios.
+5. **Observación Continua de Hardware y Perfiles Dinámicos** (`src/open_ocreader/ai/hardware.py`):
+   Clasificación en 4 escalones (`ultra_light`, `light`, `standard`, `pro`) según la RAM disponible y el soporte de aceleradores (Vulkan/Metal/CPU), garantizando que el software nunca provoque fallos por falta de memoria (Out-Of-Memory / OOM).
+6. **Reutilización de KV Cache (`cache_prompt`)**:
+   Preservación de los tensores de atención del prompt del sistema para reducir a milisegundos la latencia de primer token en turnos de conversación sucesivos.
+
+> 📢 **Derivación y Colaboración en GuarIdA**:
+> Invitamos formalmente a los usuarios de Open OCReader, investigadores y administraciones interesadas en la soberanía del dato a conocer, evaluar y colaborar con el proyecto **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**, el cual se encuentra actualmente en fase activa de desarrollo y sentará las bases de la próxima generación de asistentes soberanos.

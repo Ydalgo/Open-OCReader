@@ -19,6 +19,9 @@ from .security import SecurityError, is_within_directory
 
 logger = get_logger("updater")
 
+MAX_UPDATE_SIZE = 50 * 1024 * 1024  # 50 MB límite de descarga de código fuente
+BLOCKED_UPDATE_EXTENSIONS = {".exe", ".dll", ".so", ".dylib", ".pyd", ".bin", ".com", ".scr"}
+
 REPO_RAW_INIT = "https://raw.githubusercontent.com/Ydalgo/Open-OCReader/main/src/open_ocreader/__init__.py"
 REPO_ZIP_URL = "https://github.com/Ydalgo/Open-OCReader/archive/refs/heads/main.zip"
 
@@ -79,10 +82,11 @@ def check_for_updates(current_version: str) -> UpdateInfo:
         )
 
 
-def apply_update() -> str:
+def apply_update(expected_sha256: Optional[str] = None) -> str:
     """
     Actualiza el proyecto sin desinstalar ni borrar models/, bin/ o logs/.
-    Si es un repositorio Git, usa 'git pull'. En caso contrario, descarga el código de main.zip.
+    Si es un repositorio Git, usa 'git pull'. En caso contrario, descarga el código de main.zip
+    validando límites de tamaño, integridad y sanitización estricta.
     """
     root = get_project_root()
 
@@ -109,12 +113,40 @@ def apply_update() -> str:
         )
 
     logger.info("Descargando paquete de actualización desde GitHub...")
-    resp = requests.get(REPO_ZIP_URL, timeout=60)
+    resp = requests.get(REPO_ZIP_URL, timeout=60, stream=True)
     resp.raise_for_status()
 
-    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+    # Proteger contra DoS por descargas gigantes (Content-Length y streaming)
+    content_length = resp.headers.get("Content-Length")
+    if content_length and int(content_length) > MAX_UPDATE_SIZE:
+        raise SecurityError(
+            f"El paquete de actualización supera el límite máximo permitido ({MAX_UPDATE_SIZE // (1024**2)} MB)."
+        )
+
+    buf = io.BytesIO()
+    total_bytes = 0
+    for chunk in resp.iter_content(chunk_size=128 * 1024):
+        total_bytes += len(chunk)
+        if total_bytes > MAX_UPDATE_SIZE:
+            raise SecurityError(
+                f"La descarga del paquete de actualización superó los {MAX_UPDATE_SIZE // (1024**2)} MB permitidos."
+            )
+        buf.write(chunk)
+
+    payload = buf.getvalue()
+    if expected_sha256:
+        import hashlib
+        import hmac
+        actual_hash = hashlib.sha256(payload).hexdigest().lower()
+        clean_exp = expected_sha256.lower().removeprefix("sha256:")
+        if not hmac.compare_digest(actual_hash, clean_exp):
+            raise SecurityError(
+                f"Firma SHA-256 no válida para la actualización. Esperado: {clean_exp}, Obtenido: {actual_hash}"
+            )
+
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
         top_folder = zf.namelist()[0].split("/")[0]
-        preserve = {"models", "bin", "logs", "dist", "build", "venv"}
+        preserve = {"models", "bin", "logs", "dist", "build", "venv", "cache", "projects"}
 
         for member in zf.infolist():
             if member.is_dir():
@@ -128,6 +160,13 @@ def apply_update() -> str:
             first_part = rel_path.split("/")[0]
             if first_part in preserve:
                 continue
+
+            # Bloquear la inyección de ejecutables o librerías nativas arbitrarias mediante el zip
+            member_suffix = Path(rel_path).suffix.lower()
+            if member_suffix in BLOCKED_UPDATE_EXTENSIONS:
+                raise SecurityError(
+                    f"Archivo ejecutable no permitido en actualización de código: {member.filename}"
+                )
 
             dest = root / rel_path
             if not is_within_directory(root, dest):

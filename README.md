@@ -188,8 +188,23 @@ python src/ocr_tool.py --update
 * **[llama.cpp](https://github.com/ggml-org/llama.cpp)**: Extraordinario motor de inferencia en C/C++ impulsado por Georgi Gerganov y la comunidad `ggml-org`. Ejecuta tanto los modelos VLM como el servidor de embeddings en formato **GGUF** 100% en local sobre CPU, Vulkan, CUDA y Metal.
 * **[Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF) y [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF)** ([Qwen Team — Alibaba](https://qwenlm.github.io/), licencia **Apache 2.0**): Familia multimodal (Visión + Lenguaje) escalada automáticamente según la RAM del equipo para manuscritos, traducción, resúmenes, Q&A y anonimización RGPD.
 * **[BGE-M3](https://huggingface.co/gpustack/bge-m3-GGUF)** ([BAAI — Beijing Academy of Artificial Intelligence](https://github.com/FlagOpen/FlagEmbedding), licencia **MIT**): Modelo multilingüe de embeddings de última generación utilizado para la búsqueda híbrida (Vectorial + BM25 RRF) sobre el Árbol de Nodos AST.
-* **Arquitectura de contexto e ingeniería inspirada en [GuarIdA](https://github.com/Ydalgo)** (Árbol de Nodos AST, compresión BPE, búsqueda híbrida RRF, caché SQLite WAL comprimida y perfiles de hardware).
 * **[Hugging Face](https://huggingface.co/)**: Plataforma abierta que aloja y distribuye los modelos oficiales GGUF con verificación criptográfica SHA-256.
+
+### 🛡️ Reconocimiento Especial y Proyecto Hermano: GuarIdA
+
+Un pilar fundamental de la arquitectura y la ingeniería de contexto de **Open OCReader** proviene directamente de las investigaciones, diseños y código desarrollados en el proyecto hermano **[GuarIdA](https://github.com/Ydalgo/GuarIdA)** (*Guardián de Identidad y Asistencia Documental con IA Local Soberana*):
+
+* **Repositorio oficial**: **[https://github.com/Ydalgo/GuarIdA](https://github.com/Ydalgo/GuarIdA)**
+* **Componentes estructurales y algoritmos transferidos desde GuarIdA**:
+  1. **Árbol de Nodos Documental (AST)** (`doc_tree.py`): Descomposición jerárquica y semántica de documentos extensos (secciones, títulos, tablas y bloques OCR) con asignación de rutas de contexto, eliminando el límite de ventana de contexto del LLM.
+  2. **Compresión de Vocabulario BPE y Minificación** (`chunking.py`, `doc_tree.py`): Algoritmos de condensación sintáctica para maximizar la densidad informativa por token en modelos de lenguaje pequeños (SLM) y medianos.
+  3. **Recuperación Híbrida RRF (Reciprocal Rank Fusion)** (`doc_tree.py`, `multi_doc_chat.py`): Fusión calibrada de ranking léxico (`BM25Okapi`) con similitud vectorial densa (`BGE-M3`) para búsqueda precisa sin alucinaciones.
+  4. **Caché Persistente en SQLite WAL con Compresión** (`doc_cache.py`): Indexación única por huella criptográfica SHA-256 del fichero, persistida en SQLite en modo WAL con compresión `zstd`/`zlib`, permitiendo reapertura instantánea de sesiones y proyectos sin reindexar.
+  5. **Telemetría y Observación Dinámica de Hardware** (`hardware.py`): Diagnóstico en tiempo real de RAM, VRAM y aceleración gráfica (Vulkan/Metal/CPU) con asignación dinámica de perfiles (`ultra_light`, `light`, `standard`, `pro`) y salvaguardas contra OOM.
+  6. **Reutilización de KV Cache (`cache_prompt`)**: Optimización del tiempo a primer token (TTFT) en diálogos multivuelta.
+
+> 🌟 **¿Te interesa la Inteligencia Artificial Local, Soberana y Privada?**
+> Te invitamos cordialmente a conocer, dar una estrella ⭐ y seguir el desarrollo de **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**. El proyecto se encuentra actualmente en desarrollo activo y ampliará sustancialmente las capacidades de asistencia soberana, análisis de identidad y privacidad documental.
 
 ### 🌐 Servidor API y Compilación Nativa
 * **[FastAPI](https://fastapi.tiangolo.com/)**, **[Uvicorn](https://www.uvicorn.org/)** y **[Nginx](https://nginx.org/)**: Base del modo servidor REST endurecido, documentación interactiva Swagger UI y despliegue con cifrado **TLS 1.3**.

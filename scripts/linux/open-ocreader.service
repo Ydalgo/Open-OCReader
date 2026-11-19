@@ -16,7 +16,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=__PROJECT_DIR__/logs __PROJECT_DIR__/models __PROJECT_DIR__/bin
+ReadWritePaths=__PROJECT_DIR__/logs __PROJECT_DIR__/models __PROJECT_DIR__/bin __PROJECT_DIR__/cache __PROJECT_DIR__/projects
 
 [Install]
 WantedBy=multi-user.target

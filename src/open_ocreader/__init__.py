@@ -12,7 +12,7 @@ from .formats.txt_builder import build_txt
 from .formats.json_builder import build_json
 from .gui import launch_gui, OpenOCReaderGUI
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __all__ = [
     "OCREngine",
     "OCRBox",
