@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Dict
-from .logger import get_logger, get_logs_dir
+from .logger import get_logger, get_logs_dir, is_log_deletion_locked
 
 logger = get_logger("maintenance")
 
@@ -16,8 +16,11 @@ logger = get_logger("maintenance")
 def clear_logs() -> Dict[str, int]:
     """
     Limpia los ficheros de log de la aplicación y de llama-server.
-    En Windows los logs activos se truncan de forma segura sin romper los descriptores abiertos.
+    En modo auditoría ENS (OPEN_OCREADER_LOCK_LOGS=1) el borrado está bloqueado.
     """
+    if is_log_deletion_locked():
+        logger.warning("Intento de borrado de logs bloqueado por política ENS (OPEN_OCREADER_LOCK_LOGS=1).")
+        raise PermissionError("El borrado de logs está deshabilitado por política de auditoría ENS.")
     logs_dir = get_logs_dir()
     removed_files = 0
     truncated_files = 0

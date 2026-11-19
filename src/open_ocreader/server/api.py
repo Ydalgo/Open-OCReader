@@ -183,6 +183,11 @@ def create_app() -> FastAPI:
             "ai_models_ready": rt.is_models_present(),
         }
 
+    @api.get("/api/v1/governance", dependencies=[Depends(_verify_api_key)])
+    def governance_report():
+        from ..governance import collect_governance_data
+        return JSONResponse(collect_governance_data())
+
     @api.post("/api/v1/convert", dependencies=[Depends(_verify_api_key)])
     def convert_document(
         background_tasks: BackgroundTasks,

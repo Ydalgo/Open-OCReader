@@ -11,10 +11,67 @@ Uso:
 """
 
 import argparse
+import hashlib
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
+
+
+def find_signtool() -> Optional[Path]:
+    """Localiza signtool.exe en PATH o en Windows Kits (SDK)."""
+    in_path = shutil.which("signtool.exe")
+    if in_path:
+        return Path(in_path)
+    kits_root = Path(r"C:\Program Files (x86)\Windows Kits\10\bin")
+    if kits_root.exists():
+        candidates = sorted(kits_root.rglob("x64/signtool.exe"), reverse=True)
+        if candidates:
+            return candidates[0]
+    return None
+
+
+def sign_executable(exe_path: Path, pfx_path: str, pfx_password: Optional[str], timestamp_url: str):
+    """Firma digitalmente el ejecutable .exe con SHA-256 y sellado de tiempo RFC 3161."""
+    signtool = find_signtool()
+    if not signtool:
+        print("[AVISO] No se encontró signtool.exe (Windows SDK). Omitiendo firma digital.", file=sys.stderr)
+        return
+
+    cmd = [
+        str(signtool),
+        "sign",
+        "/fd", "SHA256",
+        "/f", pfx_path,
+        "/tr", timestamp_url,
+        "/td", "SHA256",
+    ]
+    if pfx_password:
+        cmd.extend(["/p", pfx_password])
+    cmd.append(str(exe_path))
+
+    print(f"Firmando digitalmente '{exe_path.name}' con SHA-256...")
+    res = subprocess.run(cmd, check=False)
+    if res.returncode == 0:
+        print(f"✓ Ejecutable firmado correctamente: {exe_path.name}")
+    else:
+        print(f"[ERROR] Falló signtool (código {res.returncode}).", file=sys.stderr)
+
+
+def write_sha256_manifest(exe_path: Path):
+    """Genera el fichero SHA256SUMS.txt junto al ejecutable para verificación de integridad ENS."""
+    if not exe_path.exists():
+        return
+    h = hashlib.sha256()
+    with open(exe_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
+    manifest = exe_path.parent / "SHA256SUMS.txt"
+    manifest.write_text(f"{digest}  {exe_path.name}\n", encoding="utf-8")
+    print(f"✓ Manifiesto de integridad generado: {manifest} ({digest[:16]}...)")
 
 
 def has_nuitka() -> bool:
@@ -163,6 +220,9 @@ def main():
         help="Objetivo a compilar: 'gui' (aplicación visual) o 'server' (API REST).",
     )
     parser.add_argument("--onefile", action="store_true", help="Generar un único fichero .exe portátil.")
+    parser.add_argument("--sign-pfx", default=os.environ.get("OPEN_OCREADER_SIGN_PFX"), help="Certificado .pfx para Code Signing.")
+    parser.add_argument("--sign-password", default=os.environ.get("OPEN_OCREADER_SIGN_PASS"), help="Contraseña del certificado .pfx.")
+    parser.add_argument("--timestamp-url", default="http://timestamp.digicert.com", help="Servidor de sellado de tiempo RFC 3161.")
     args = parser.parse_args()
 
     base_dir = Path(__file__).resolve().parent.parent.parent
@@ -183,6 +243,12 @@ def main():
 
     out_name = "Open_OCReader_Server" if args.target == "server" else "Open_OCReader"
     exe_path = base_dir / "dist" / (f"{out_name}.exe" if args.onefile else f"{out_name}/{out_name}.exe")
+
+    if args.sign_pfx and exe_path.exists():
+        sign_executable(exe_path, args.sign_pfx, args.sign_password, args.timestamp_url)
+
+    write_sha256_manifest(exe_path)
+
     print("\n" + "=" * 65)
     print(f"OK! Compilación finalizada: {exe_path}")
     print("=" * 65)

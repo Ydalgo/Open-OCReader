@@ -105,6 +105,12 @@ def main():
     parser.add_argument("--check-update", action="store_true", help="Comprueba si hay una nueva versión en GitHub.")
     parser.add_argument("--update", action="store_true", help="Actualiza el proyecto desde GitHub sin desinstalar.")
     parser.add_argument(
+        "--governance-report",
+        default=None,
+        metavar="RUTA",
+        help="Genera un informe de gobernanza de IA y ENS (.docx, .md o .json) en la ruta indicada.",
+    )
+    parser.add_argument(
         "-v",
         "--version",
         action="version",
@@ -114,6 +120,12 @@ def main():
     args = parser.parse_args()
 
     # Comandos de mantenimiento y actualización rápida
+    if args.governance_report:
+        from open_ocreader.governance import generate_governance_report
+        out = generate_governance_report(args.governance_report)
+        print(f"[Open OCReader] Informe de gobernanza IA generado en: {out}")
+        sys.exit(0)
+
     if args.clear_logs:
         from open_ocreader.maintenance import clear_logs
         res = clear_logs()

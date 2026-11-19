@@ -804,7 +804,43 @@ class OpenOCReaderGUI:
         txt.insert("1.0", info_text)
         txt.config(state=tk.DISABLED)
 
-        ttk.Button(win, text="Cerrar", command=win.destroy).pack(pady=(6, 10))
+        btn_bar = ttk.Frame(win)
+        btn_bar.pack(fill=tk.X, padx=14, pady=(6, 12))
+
+        ttk.Button(
+            btn_bar,
+            text="📑 Generar Informe de Gobernanza IA (1 clic)",
+            command=lambda: self._export_governance_report(win),
+        ).pack(side=tk.LEFT)
+        ttk.Button(btn_bar, text="Cerrar", command=win.destroy).pack(side=tk.RIGHT)
+
+    def _export_governance_report(self, parent_win=None):
+        chosen = filedialog.asksaveasfilename(
+            parent=parent_win or self.root,
+            title="Guardar Informe de Gobernanza de IA y ENS",
+            initialfile="Informe_Gobernanza_IA_OpenOCReader.docx",
+            defaultextension=".docx",
+            filetypes=[
+                ("Documento Word (*.docx)", "*.docx"),
+                ("Markdown (*.md)", "*.md"),
+                ("JSON estructurado (*.json)", "*.json"),
+            ],
+        )
+        if not chosen:
+            return
+        try:
+            from .governance import generate_governance_report
+            out_path = generate_governance_report(chosen)
+            self.status_var.set(f"✓ Informe de gobernanza generado en: {out_path}")
+            if messagebox.askyesno(
+                "Informe generado",
+                f"Informe de Gobernanza de IA generado con éxito:\n{out_path}\n\n¿Deseas abrirlo ahora?",
+                parent=parent_win or self.root,
+            ):
+                self._open_path_crossplatform(out_path)
+        except Exception as e:
+            logger.exception(f"Error generando informe de gobernanza: {e}")
+            messagebox.showerror("Error", f"No se pudo generar el informe:\n{e}", parent=parent_win or self.root)
 
     def _clear_cache_gui(self):
         from .maintenance import clear_cache
