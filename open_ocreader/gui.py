@@ -5,6 +5,7 @@ desde el portapapeles y ejecución en segundo plano.
 """
 
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -416,7 +417,7 @@ class OpenOCReaderGUI:
     def _open_file(self):
         if self.last_generated_file and Path(self.last_generated_file).exists():
             try:
-                os.startfile(self.last_generated_file)
+                self._open_path_crossplatform(self.last_generated_file)
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo abrir el archivo:\n{e}")
 
@@ -424,9 +425,19 @@ class OpenOCReaderGUI:
         if self.last_generated_file:
             folder = str(Path(self.last_generated_file).parent)
             try:
-                os.startfile(folder)
+                self._open_path_crossplatform(folder)
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo abrir la carpeta:\n{e}")
+
+    @staticmethod
+    def _open_path_crossplatform(path: str):
+        """Abre un archivo o carpeta en Windows, Linux o macOS."""
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.run(["open", path], check=False)
+        else:
+            subprocess.run(["xdg-open", path], check=False)
 
 
 def launch_gui():
