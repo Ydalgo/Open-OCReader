@@ -277,6 +277,19 @@ class OpenOCReaderGUI:
         self.ai_output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.ai_output_text.yview)
 
+        # Atajos de teclado explícitos y menú contextual (clic derecho) para copiar fácilmente
+        self.ai_output_text.bind("<Control-c>", self._copy_selection)
+        self.ai_output_text.bind("<Control-C>", self._copy_selection)
+        self.ai_output_text.bind("<Control-a>", self._select_all_output)
+        self.ai_output_text.bind("<Control-A>", self._select_all_output)
+        self.ai_output_text.bind("<Button-3>", self._show_text_context_menu)
+
+        self.text_context_menu = tk.Menu(self.root, tearoff=0)
+        self.text_context_menu.add_command(label="📋 Copiar selección", command=self._copy_selection)
+        self.text_context_menu.add_command(label="📋 Copiar todo", command=self._copy_ai_output)
+        self.text_context_menu.add_separator()
+        self.text_context_menu.add_command(label="Seleccionar todo (Ctrl+A)", command=self._select_all_output)
+
         # Botones inferiores IA
         ai_bottom = ttk.Frame(self.tab_ai)
         ai_bottom.pack(fill=tk.X, pady=(6, 0))
@@ -558,6 +571,30 @@ class OpenOCReaderGUI:
             b.config(state=tk.NORMAL)
         self.ai_status_var.set(f"Error en IA: {err_msg}")
         messagebox.showerror("Error de IA", f"Ocurrió un error al ejecutar la IA:\n\n{err_msg}")
+
+    def _copy_selection(self, event=None):
+        try:
+            selected = self.ai_output_text.get(tk.SEL_FIRST, tk.SEL_LAST)
+            if selected:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(selected)
+                self.ai_status_var.set("✓ Selección copiada al portapapeles.")
+        except tk.TclError:
+            # Si no hay texto seleccionado, copiar todo
+            self._copy_ai_output()
+        return "break"
+
+    def _select_all_output(self, event=None):
+        self.ai_output_text.tag_add(tk.SEL, "1.0", tk.END)
+        self.ai_output_text.mark_set(tk.INSERT, "1.0")
+        self.ai_output_text.see(tk.INSERT)
+        return "break"
+
+    def _show_text_context_menu(self, event):
+        try:
+            self.text_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.text_context_menu.grab_release()
 
     def _copy_ai_output(self):
         content = self.ai_output_text.get("1.0", tk.END).strip()
