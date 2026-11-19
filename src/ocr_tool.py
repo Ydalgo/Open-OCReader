@@ -99,6 +99,17 @@ def main():
         default=None,
         help="Pregunta a responder cuando se usa '--ai ask'.",
     )
+    parser.add_argument(
+        "--target-lang",
+        default="Español",
+        help="Idioma destino para '--ai translate' (ej. 'English', 'Français', 'Deutsch', '日本語').",
+    )
+    parser.add_argument(
+        "--lang",
+        choices=["es", "en", "fr", "de", "pt", "it"],
+        default="es",
+        help="Idioma de respuesta de la IA para resúmenes y preguntas (por defecto: 'es').",
+    )
     parser.add_argument("-q", "--quiet", action="store_true", help="Modo silencioso.")
     parser.add_argument("--clear-logs", action="store_true", help="Limpia todos los archivos de log.")
     parser.add_argument("--clear-cache", action="store_true", help="Limpia cachés y archivos temporales.")
@@ -180,17 +191,20 @@ def main():
                 )
                 runtime = LlamaRuntimeManager.get_instance()
 
+                from open_ocreader.i18n import get_llm_language_name
+                response_lang = get_llm_language_name(args.lang)
+
                 if args.ai == "summarize":
-                    result_text = DocumentQA(runtime).summarize(text, progress_cb=cb)
+                    result_text = DocumentQA(runtime).summarize(text, response_lang=response_lang, progress_cb=cb)
                 elif args.ai == "translate":
-                    result_text = DocumentTranslator(runtime).translate_to_spanish(text, progress_cb=cb)
+                    result_text = DocumentTranslator(runtime).translate(text, target_lang=args.target_lang, progress_cb=cb)
                 elif args.ai == "anonymize":
                     result_text = DocumentAnonymizer(runtime).anonymize(text, progress_cb=cb)
                 elif args.ai == "ask":
                     if not args.question:
                         print("Error: Debes especificar '--question \"tu pregunta\"' con '--ai ask'.", file=sys.stderr)
                         sys.exit(1)
-                    result_text = DocumentQA(runtime).ask(text, args.question, progress_cb=cb)
+                    result_text = DocumentQA(runtime).ask(text, args.question, response_lang=response_lang, progress_cb=cb)
             else:
                 result_text = text
 

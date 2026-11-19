@@ -241,14 +241,18 @@ def create_app() -> FastAPI:
         background_tasks: BackgroundTasks,
         file: UploadFile = File(...),
         handwriting: bool = Form(False),
+        lang: str = Form("es"),
     ):
         from ..ai import DocumentQA, LlamaRuntimeManager
+        from ..i18n import get_llm_language_name
         in_path = _save_upload_to_temp(file)
         background_tasks.add_task(_cleanup_paths, in_path.parent)
         try:
             text = _extract_document_text(in_path, handwriting=handwriting)
-            summary = DocumentQA(LlamaRuntimeManager.get_instance()).summarize(text)
-            return JSONResponse({"filename": in_path.name, "summary": summary})
+            summary = DocumentQA(LlamaRuntimeManager.get_instance()).summarize(
+                text, response_lang=get_llm_language_name(lang)
+            )
+            return JSONResponse({"filename": in_path.name, "lang": lang, "summary": summary})
         except SecurityError as se:
             raise HTTPException(status_code=400, detail=str(se))
         except Exception as e:
@@ -259,6 +263,7 @@ def create_app() -> FastAPI:
     def ai_translate(
         background_tasks: BackgroundTasks,
         file: UploadFile = File(...),
+        target_lang: str = Form("Español"),
         handwriting: bool = Form(False),
     ):
         from ..ai import DocumentTranslator, LlamaRuntimeManager
@@ -266,8 +271,10 @@ def create_app() -> FastAPI:
         background_tasks.add_task(_cleanup_paths, in_path.parent)
         try:
             text = _extract_document_text(in_path, handwriting=handwriting)
-            translation = DocumentTranslator(LlamaRuntimeManager.get_instance()).translate_to_spanish(text)
-            return JSONResponse({"filename": in_path.name, "translation": translation})
+            translation = DocumentTranslator(LlamaRuntimeManager.get_instance()).translate(
+                text, target_lang=target_lang
+            )
+            return JSONResponse({"filename": in_path.name, "target_lang": target_lang, "translation": translation})
         except SecurityError as se:
             raise HTTPException(status_code=400, detail=str(se))
         except Exception as e:
@@ -302,16 +309,20 @@ def create_app() -> FastAPI:
         file: UploadFile = File(...),
         question: str = Form(...),
         handwriting: bool = Form(False),
+        lang: str = Form("es"),
     ):
         from ..ai import DocumentQA, LlamaRuntimeManager
+        from ..i18n import get_llm_language_name
         if len(question) > 2000:
             raise HTTPException(status_code=400, detail="La pregunta supera el límite de 2000 caracteres.")
         in_path = _save_upload_to_temp(file)
         background_tasks.add_task(_cleanup_paths, in_path.parent)
         try:
             text = _extract_document_text(in_path, handwriting=handwriting)
-            answer = DocumentQA(LlamaRuntimeManager.get_instance()).ask(text, question)
-            return JSONResponse({"filename": in_path.name, "question": question, "answer": answer})
+            answer = DocumentQA(LlamaRuntimeManager.get_instance()).ask(
+                text, question, response_lang=get_llm_language_name(lang)
+            )
+            return JSONResponse({"filename": in_path.name, "lang": lang, "question": question, "answer": answer})
         except SecurityError as se:
             raise HTTPException(status_code=400, detail=str(se))
         except Exception as e:

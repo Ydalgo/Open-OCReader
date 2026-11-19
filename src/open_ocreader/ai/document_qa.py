@@ -1,5 +1,6 @@
 """
 Motor de preguntas y respuestas (Q&A) y resúmenes sobre el contenido del documento.
+Responde siempre en el idioma configurado por el usuario en la interfaz o petición.
 """
 
 from typing import Callable, Optional
@@ -16,24 +17,25 @@ class DocumentQA:
         self,
         document_text: str,
         question: str,
+        response_lang: str = "español de España",
         progress_cb: Optional[Callable[[str], None]] = None,
     ) -> str:
-        """Responde en español a una pregunta basada estrictamente en el documento."""
+        """Responde en el idioma solicitado basándose estrictamente en el documento."""
         if not document_text.strip():
-            return "El documento no contiene texto legible."
+            return "No readable text found in the document."
 
         if progress_cb:
-            progress_cb("Analizando el contenido del documento para responder...")
+            progress_cb(f"Analizando documento para responder en {response_lang}...")
 
         system_prompt = (
-            "Eres un asistente documental experto que responde siempre en español de España.\n"
-            "Responde a la pregunta del usuario basándote ÚNICAMENTE en el texto del documento proporcionado.\n"
-            "Si el dato solicitado no aparece en el documento, indícalo claramente sin inventar ni suponer nada."
+            f"You are an expert document assistant. You MUST ALWAYS reply in {response_lang}.\n"
+            "Answer the user's question strictly based on the provided document text.\n"
+            f"If the requested information does not appear in the document, state it clearly in {response_lang} without inventing anything."
         )
 
         user_prompt = (
-            f"=== CONTENIDO DEL DOCUMENTO ===\n{document_text}\n=== FIN DEL DOCUMENTO ===\n\n"
-            f"Pregunta del usuario: {question}"
+            f"=== DOCUMENT CONTENT ===\n{document_text}\n=== END OF DOCUMENT ===\n\n"
+            f"User question: {question}"
         )
 
         messages = [
@@ -52,21 +54,22 @@ class DocumentQA:
     def summarize(
         self,
         document_text: str,
+        response_lang: str = "español de España",
         progress_cb: Optional[Callable[[str], None]] = None,
     ) -> str:
-        """Genera un resumen ejecutivo y puntos clave del documento en español."""
+        """Genera un resumen ejecutivo y puntos clave del documento en el idioma elegido."""
         if not document_text.strip():
-            return "El documento no contiene texto legible."
+            return "No readable text found in the document."
 
         if progress_cb:
-            progress_cb("Generando resumen ejecutivo del documento...")
+            progress_cb(f"Generando resumen ejecutivo en {response_lang}...")
 
         system_prompt = (
-            "Eres un analista documental experto. Resume el siguiente documento en español de España.\n"
-            "Estructura tu respuesta con:\n"
-            "1. **Tipo de documento y propósito** (1-2 líneas).\n"
-            "2. **Puntos clave / Datos principales** (en lista de viñetas).\n"
-            "3. **Fechas, importes o plazos relevantes** (si los hubiera)."
+            f"You are an expert document analyst. Summarize the following document strictly in {response_lang}.\n"
+            "Structure your response with:\n"
+            "1. Document type and purpose (1-2 lines).\n"
+            "2. Key points / Main data (bullet list).\n"
+            "3. Relevant dates, amounts, or deadlines (if any)."
         )
 
         messages = [

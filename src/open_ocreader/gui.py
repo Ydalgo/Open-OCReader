@@ -20,6 +20,12 @@ from .converter import DocumentConverter
 from .document_loader import DocumentLoader
 from .engine import OCREngine
 from .formats.docx_builder import _group_boxes_into_lines
+from .i18n import (
+    SUPPORTED_UI_LANGUAGES,
+    TRANSLATION_TARGET_LANGUAGES,
+    get_llm_language_name,
+    tr,
+)
 from .logger import get_logger, get_logs_dir
 
 logger = get_logger("gui")
@@ -65,6 +71,9 @@ class OpenOCReaderGUI:
         except Exception:
             pass
 
+        self.ui_lang = "es"
+        self.ui_lang_var = tk.StringVar(value="Español")
+        self.translate_lang_var = tk.StringVar(value="Español")
         self.input_path_var = tk.StringVar()
         self.output_path_var = tk.StringVar()
         self.format_var = tk.StringVar(value="pdf")
@@ -125,26 +134,44 @@ class OpenOCReaderGUI:
 
         tools_row = ttk.Frame(title_row)
         tools_row.pack(side=tk.RIGHT)
-        ttk.Button(tools_row, text="⚖️ Legal / IA", command=self._show_legal_compliance).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tools_row, text="🔄 Actualizar", command=self._check_updates_gui).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tools_row, text="♻️ Limpiar/Reinstalar", command=self._open_clean_reinstall_dialog).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tools_row, text="🧹 Caché", command=self._clear_cache_gui).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tools_row, text="🗑️ Logs", command=self._clear_logs_gui).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tools_row, text="📋 Logs", command=self._open_logs).pack(side=tk.LEFT, padx=(2, 0))
 
-        ttk.Label(
+        self.lang_combo = ttk.Combobox(
+            tools_row,
+            textvariable=self.ui_lang_var,
+            values=[name for _code, name in SUPPORTED_UI_LANGUAGES],
+            state="readonly",
+            width=9,
+        )
+        self.lang_combo.pack(side=tk.LEFT, padx=(0, 4))
+        self.lang_combo.bind("<<ComboboxSelected>>", self._on_ui_language_changed)
+
+        self.btn_legal = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_legal"), command=self._show_legal_compliance)
+        self.btn_legal.pack(side=tk.LEFT, padx=2)
+        self.btn_update = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_update"), command=self._check_updates_gui)
+        self.btn_update.pack(side=tk.LEFT, padx=2)
+        self.btn_reinstall = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_reinstall"), command=self._open_clean_reinstall_dialog)
+        self.btn_reinstall.pack(side=tk.LEFT, padx=2)
+        self.btn_cache = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_cache"), command=self._clear_cache_gui)
+        self.btn_cache.pack(side=tk.LEFT, padx=2)
+        self.btn_clear_logs = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_clear_logs"), command=self._clear_logs_gui)
+        self.btn_clear_logs.pack(side=tk.LEFT, padx=2)
+        self.btn_view_logs = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_view_logs"), command=self._open_logs)
+        self.btn_view_logs.pack(side=tk.LEFT, padx=(2, 0))
+
+        self.subtitle_lbl = ttk.Label(
             header_frame,
-            text="Conversión fiel a PDF/Word/Excel + IA Local (Qwen3-VL) para manuscritos, traducción y anonimización.",
+            text=tr(self.ui_lang, "subtitle"),
             font=("Segoe UI", 9),
             foreground="#555555",
-        ).pack(anchor="w")
+        )
+        self.subtitle_lbl.pack(anchor="w")
 
         # Selector de fichero común en la parte superior
-        drop_frame = ttk.LabelFrame(main_frame, text=" Fichero de entrada (Imagen o PDF) ", padding="8")
-        drop_frame.pack(fill=tk.X, pady=(0, 10))
+        self.drop_frame = ttk.LabelFrame(main_frame, text=tr(self.ui_lang, "input_group"), padding="8")
+        self.drop_frame.pack(fill=tk.X, pady=(0, 10))
 
         self.drop_canvas = tk.Canvas(
-            drop_frame,
+            self.drop_frame,
             bg="#f4f6f9",
             height=64,
             highlightthickness=1,
@@ -155,7 +182,7 @@ class OpenOCReaderGUI:
 
         self.drop_text_id = self.drop_canvas.create_text(
             350, 32,
-            text="📥 Arrastra y suelta aquí tu fichero (PDF, JPG, PNG, TIFF) o pulsa Pegar (Ctrl + V)",
+            text=tr(self.ui_lang, "drop_prompt"),
             font=("Segoe UI", 10, "italic"),
             fill="#334466",
             justify="center",
@@ -163,14 +190,16 @@ class OpenOCReaderGUI:
         self.drop_canvas.bind("<Configure>", self._center_drop_text)
         self.drop_canvas.bind("<Button-1>", lambda e: self._browse_input())
 
-        entry_row = ttk.Frame(drop_frame)
+        entry_row = ttk.Frame(self.drop_frame)
         entry_row.pack(fill=tk.X)
 
         self.input_entry = ttk.Entry(entry_row, textvariable=self.input_path_var, font=("Segoe UI", 9))
         self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
 
-        ttk.Button(entry_row, text="📋 Pegar (Ctrl+V)", command=self._paste_from_clipboard).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(entry_row, text="Examinar...", command=self._browse_input).pack(side=tk.RIGHT)
+        self.btn_paste = ttk.Button(entry_row, text=tr(self.ui_lang, "btn_paste"), command=self._paste_from_clipboard)
+        self.btn_paste.pack(side=tk.LEFT, padx=(0, 6))
+        self.btn_browse = ttk.Button(entry_row, text=tr(self.ui_lang, "btn_browse"), command=self._browse_input)
+        self.btn_browse.pack(side=tk.RIGHT)
 
         # Pestañas (Notebook)
         self.notebook = ttk.Notebook(main_frame)
@@ -179,56 +208,62 @@ class OpenOCReaderGUI:
         self.tab_convert = ttk.Frame(self.notebook, padding="10")
         self.tab_ai = ttk.Frame(self.notebook, padding="10")
 
-        self.notebook.add(self.tab_convert, text="  📄 Conversión Estructural (Rápida)  ")
-        self.notebook.add(self.tab_ai, text="  🧠 IA Local y Manuscritos (Qwen3-VL)  ")
+        self.notebook.add(self.tab_convert, text=tr(self.ui_lang, "tab_convert"))
+        self.notebook.add(self.tab_ai, text=tr(self.ui_lang, "tab_ai"))
 
         self._build_convert_tab()
         self._build_ai_tab()
 
         # Pie informativo permanente: licencia libre y aviso normativo de IA
-        footer_lbl = ttk.Label(
+        self.footer_lbl = ttk.Label(
             main_frame,
-            text="Software Libre GNU GPL v3.0 (atribución y copyleft obligatorios) • 100% Local (EU AI Act / RGPD / ENS) • Revisar salidas de IA.",
+            text=tr(self.ui_lang, "footer"),
             font=("Segoe UI", 8),
             foreground="#555555",
         )
-        footer_lbl.pack(anchor="w", pady=(6, 0))
+        self.footer_lbl.pack(anchor="w", pady=(6, 0))
 
     def _build_convert_tab(self):
         # Formato de salida
-        format_group = ttk.LabelFrame(self.tab_convert, text=" Formato de salida ", padding="8")
-        format_group.pack(fill=tk.X, pady=(0, 10))
+        self.format_group = ttk.LabelFrame(self.tab_convert, text=tr(self.ui_lang, "format_group"), padding="8")
+        self.format_group.pack(fill=tk.X, pady=(0, 10))
 
-        for label_text, fmt_key, desc in self.FORMAT_OPTIONS:
-            rb_frame = ttk.Frame(format_group)
+        self.format_widgets = {}
+        for _label_text, fmt_key, _desc in self.FORMAT_OPTIONS:
+            rb_frame = ttk.Frame(self.format_group)
             rb_frame.pack(fill=tk.X, pady=2)
 
-            ttk.Radiobutton(
+            lbl_txt, desc_txt = tr(self.ui_lang, f"fmt_{fmt_key}")
+            rb = ttk.Radiobutton(
                 rb_frame,
-                text=label_text,
+                text=lbl_txt,
                 value=fmt_key,
                 variable=self.format_var,
                 command=self._on_format_changed,
-            ).pack(side=tk.LEFT)
+            )
+            rb.pack(side=tk.LEFT)
 
-            ttk.Label(rb_frame, text=f"— {desc}", font=("Segoe UI", 8), foreground="#666666").pack(side=tk.LEFT, padx=(8, 0))
+            desc_lbl = ttk.Label(rb_frame, text=f"— {desc_txt}", font=("Segoe UI", 8), foreground="#666666")
+            desc_lbl.pack(side=tk.LEFT, padx=(8, 0))
+            self.format_widgets[fmt_key] = (rb, desc_lbl)
 
         # Destino
-        output_group = ttk.LabelFrame(self.tab_convert, text=" Fichero de salida ", padding="8")
-        output_group.pack(fill=tk.X, pady=(0, 12))
+        self.output_group = ttk.LabelFrame(self.tab_convert, text=tr(self.ui_lang, "output_group"), padding="8")
+        self.output_group.pack(fill=tk.X, pady=(0, 12))
 
-        output_entry_frame = ttk.Frame(output_group)
+        output_entry_frame = ttk.Frame(self.output_group)
         output_entry_frame.pack(fill=tk.X)
 
         ttk.Entry(output_entry_frame, textvariable=self.output_path_var, font=("Segoe UI", 9)).pack(
             side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8)
         )
-        ttk.Button(output_entry_frame, text="Guardar como...", command=self._browse_output).pack(side=tk.RIGHT)
+        self.btn_save_as = ttk.Button(output_entry_frame, text=tr(self.ui_lang, "btn_save_as"), command=self._browse_output)
+        self.btn_save_as.pack(side=tk.RIGHT)
 
         # Botón convertir
         self.btn_convert = ttk.Button(
             self.tab_convert,
-            text="🚀  Digitalizar y Convertir",
+            text=tr(self.ui_lang, "btn_convert"),
             command=self._start_conversion,
         )
         self.btn_convert.pack(fill=tk.X, ipady=6, pady=(2, 6))
@@ -241,16 +276,16 @@ class OpenOCReaderGUI:
             textvariable=self.status_var,
             font=("Segoe UI", 9),
             foreground="#222222",
-            wraplength=690,
+            wraplength=780,
         ).pack(anchor="w")
 
         post_frame = ttk.Frame(self.tab_convert)
         post_frame.pack(fill=tk.X, pady=(10, 0))
 
-        self.btn_open_file = ttk.Button(post_frame, text="📄 Abrir fichero", command=self._open_file, state=tk.DISABLED)
+        self.btn_open_file = ttk.Button(post_frame, text=tr(self.ui_lang, "btn_open_file"), command=self._open_file, state=tk.DISABLED)
         self.btn_open_file.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.btn_open_folder = ttk.Button(post_frame, text="📁 Abrir carpeta", command=self._open_folder, state=tk.DISABLED)
+        self.btn_open_folder = ttk.Button(post_frame, text=tr(self.ui_lang, "btn_open_folder"), command=self._open_folder, state=tk.DISABLED)
         self.btn_open_folder.pack(side=tk.LEFT)
 
     def _build_ai_tab(self):
@@ -258,43 +293,60 @@ class OpenOCReaderGUI:
         opts_frame = ttk.Frame(self.tab_ai)
         opts_frame.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Checkbutton(
+        self.chk_handwriting = ttk.Checkbutton(
             opts_frame,
-            text="✍️ Modo Letra Manuscrita (usa Qwen3-VL Visión en lugar de RapidOCR para leer caligrafía)",
+            text=tr(self.ui_lang, "chk_handwriting"),
             variable=self.handwriting_var,
-        ).pack(anchor="w")
+        )
+        self.chk_handwriting.pack(anchor="w")
 
         # Botones de acciones IA
-        actions_frame = ttk.LabelFrame(self.tab_ai, text=" Acciones sobre el documento ", padding="8")
-        actions_frame.pack(fill=tk.X, pady=(0, 8))
+        self.ai_actions_frame = ttk.LabelFrame(self.tab_ai, text=tr(self.ui_lang, "ai_actions_group"), padding="8")
+        self.ai_actions_frame.pack(fill=tk.X, pady=(0, 8))
 
-        btn_row = ttk.Frame(actions_frame)
+        btn_row = ttk.Frame(self.ai_actions_frame)
         btn_row.pack(fill=tk.X)
 
         self.ai_buttons = []
-        btns_spec = [
-            ("✍️ Transcribir", "transcribe"),
-            ("📝 Resumir", "summarize"),
-            ("🌐 Traducir al español", "translate"),
-            ("🔒 Anonimizar (RGPD)", "anonymize"),
-        ]
-        for label, action_id in btns_spec:
-            b = ttk.Button(btn_row, text=label, command=lambda act=action_id: self._run_ai_action(act))
-            b.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=3)
-            self.ai_buttons.append(b)
+        self.btn_ai_transcribe = ttk.Button(btn_row, text=tr(self.ui_lang, "btn_transcribe"), command=lambda: self._run_ai_action("transcribe"))
+        self.btn_ai_transcribe.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=3)
+
+        self.btn_ai_summarize = ttk.Button(btn_row, text=tr(self.ui_lang, "btn_summarize"), command=lambda: self._run_ai_action("summarize"))
+        self.btn_ai_summarize.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=3)
+
+        self.btn_ai_anonymize = ttk.Button(btn_row, text=tr(self.ui_lang, "btn_anonymize"), command=lambda: self._run_ai_action("anonymize"))
+        self.btn_ai_anonymize.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=3)
+
+        # Fila de traducción a CUALQUIER idioma
+        trans_row = ttk.Frame(self.ai_actions_frame)
+        trans_row.pack(fill=tk.X, pady=(6, 0))
+
+        self.btn_ai_translate = ttk.Button(trans_row, text=tr(self.ui_lang, "btn_translate"), command=lambda: self._run_ai_action("translate"))
+        self.btn_ai_translate.pack(side=tk.LEFT, padx=(3, 6))
+
+        self.translate_lang_combo = ttk.Combobox(
+            trans_row,
+            textvariable=self.translate_lang_var,
+            values=TRANSLATION_TARGET_LANGUAGES,
+            width=22,
+        )
+        self.translate_lang_combo.pack(side=tk.LEFT)
+
+        self.ai_buttons.extend([self.btn_ai_transcribe, self.btn_ai_summarize, self.btn_ai_anonymize, self.btn_ai_translate])
 
         # Preguntar al documento
-        qa_frame = ttk.Frame(actions_frame)
+        qa_frame = ttk.Frame(self.ai_actions_frame)
         qa_frame.pack(fill=tk.X, pady=(8, 0))
 
-        ttk.Label(qa_frame, text="💬 Pregunta:").pack(side=tk.LEFT, padx=(0, 6))
+        self.lbl_question = ttk.Label(qa_frame, text=tr(self.ui_lang, "lbl_question"))
+        self.lbl_question.pack(side=tk.LEFT, padx=(0, 6))
         q_entry = ttk.Entry(qa_frame, textvariable=self.question_var, font=("Segoe UI", 9))
         q_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         q_entry.bind("<Return>", lambda e: self._run_ai_action("ask"))
 
-        b_ask = ttk.Button(qa_frame, text="Preguntar", command=lambda: self._run_ai_action("ask"))
-        b_ask.pack(side=tk.RIGHT)
-        self.ai_buttons.append(b_ask)
+        self.btn_ai_ask = ttk.Button(qa_frame, text=tr(self.ui_lang, "btn_ask"), command=lambda: self._run_ai_action("ask"))
+        self.btn_ai_ask.pack(side=tk.RIGHT)
+        self.ai_buttons.append(self.btn_ai_ask)
 
         # Progreso y estado IA
         self.ai_progress = ttk.Progressbar(self.tab_ai, mode="indeterminate")
@@ -348,6 +400,59 @@ class OpenOCReaderGUI:
 
     def _center_drop_text(self, event):
         self.drop_canvas.coords(self.drop_text_id, event.width / 2, event.height / 2)
+
+    def _on_ui_language_changed(self, event=None):
+        """Actualiza en caliente el idioma de toda la interfaz y del motor de IA."""
+        selected_name = self.ui_lang_var.get()
+        for code, name in SUPPORTED_UI_LANGUAGES:
+            if name == selected_name:
+                self.ui_lang = code
+                break
+        # Sincronizar el idioma destino de traducción por defecto con el idioma elegido
+        self.translate_lang_var.set(selected_name)
+        self._apply_language()
+
+    def _apply_language(self):
+        lang = self.ui_lang
+        self.root.title(tr(lang, "window_title"))
+        self.subtitle_lbl.config(text=tr(lang, "subtitle"))
+        self.btn_legal.config(text=tr(lang, "btn_legal"))
+        self.btn_update.config(text=tr(lang, "btn_update"))
+        self.btn_reinstall.config(text=tr(lang, "btn_reinstall"))
+        self.btn_cache.config(text=tr(lang, "btn_cache"))
+        self.btn_clear_logs.config(text=tr(lang, "btn_clear_logs"))
+        self.btn_view_logs.config(text=tr(lang, "btn_view_logs"))
+        self.drop_frame.config(text=tr(lang, "input_group"))
+        self.btn_paste.config(text=tr(lang, "btn_paste"))
+        self.btn_browse.config(text=tr(lang, "btn_browse"))
+        self.notebook.tab(self.tab_convert, text=tr(lang, "tab_convert"))
+        self.notebook.tab(self.tab_ai, text=tr(lang, "tab_ai"))
+        self.format_group.config(text=tr(lang, "format_group"))
+        for fmt_key, (rb, desc_lbl) in self.format_widgets.items():
+            lbl_txt, desc_txt = tr(lang, f"fmt_{fmt_key}")
+            rb.config(text=lbl_txt)
+            desc_lbl.config(text=f"— {desc_txt}")
+        self.output_group.config(text=tr(lang, "output_group"))
+        self.btn_save_as.config(text=tr(lang, "btn_save_as"))
+        self.btn_convert.config(text=tr(lang, "btn_convert"))
+        self.btn_open_file.config(text=tr(lang, "btn_open_file"))
+        self.btn_open_folder.config(text=tr(lang, "btn_open_folder"))
+        self.chk_handwriting.config(text=tr(lang, "chk_handwriting"))
+        self.ai_actions_frame.config(text=tr(lang, "ai_actions_group"))
+        self.btn_ai_transcribe.config(text=tr(lang, "btn_transcribe"))
+        self.btn_ai_summarize.config(text=tr(lang, "btn_summarize"))
+        self.btn_ai_translate.config(text=tr(lang, "btn_translate"))
+        self.btn_ai_anonymize.config(text=tr(lang, "btn_anonymize"))
+        self.lbl_question.config(text=tr(lang, "lbl_question"))
+        self.btn_ai_ask.config(text=tr(lang, "btn_ask"))
+        self.footer_lbl.config(text=tr(lang, "footer"))
+        if not self.input_path_var.get().strip():
+            self.drop_canvas.itemconfigure(self.drop_text_id, text=tr(lang, "drop_prompt"))
+            self.status_var.set(tr(lang, "status_ready"))
+            self.ai_status_var.set(tr(lang, "ai_status_ready"))
+        else:
+            name = Path(self.input_path_var.get().strip()).name
+            self.drop_canvas.itemconfigure(self.drop_text_id, text=tr(lang, "drop_selected", name=name))
 
     def _setup_drag_and_drop(self):
         if HAS_WINDND:
@@ -661,16 +766,23 @@ class OpenOCReaderGUI:
                 self.cached_doc_key = cache_key
                 logger.info(f"OCR completado ({len(doc_text)} caracteres extraídos, manuscrito={use_handwriting}).")
 
+            response_lang = get_llm_language_name(self.ui_lang)
+            target_translate_lang = self.translate_lang_var.get().strip() or response_lang
+
             if action == "transcribe":
                 output_text = doc_text
             elif action == "summarize":
-                output_text = DocumentQA(runtime).summarize(doc_text, progress_cb=update_status)
+                output_text = DocumentQA(runtime).summarize(doc_text, response_lang=response_lang, progress_cb=update_status)
             elif action == "translate":
-                output_text = DocumentTranslator(runtime).translate_to_spanish(doc_text, progress_cb=update_status)
+                output_text = DocumentTranslator(runtime).translate(
+                    doc_text, target_lang=target_translate_lang, progress_cb=update_status
+                )
             elif action == "anonymize":
                 output_text = DocumentAnonymizer(runtime).anonymize(doc_text, progress_cb=update_status)
             elif action == "ask":
-                output_text = DocumentQA(runtime).ask(doc_text, question, progress_cb=update_status)
+                output_text = DocumentQA(runtime).ask(
+                    doc_text, question, response_lang=response_lang, progress_cb=update_status
+                )
             else:
                 output_text = doc_text
 

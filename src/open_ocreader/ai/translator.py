@@ -1,5 +1,5 @@
 """
-Traductor multilingüe contextual al español de España mediante LLM local.
+Traductor multilingüe contextual a cualquier idioma mediante LLM local (Qwen3-VL).
 """
 
 from typing import Callable, Optional
@@ -7,39 +7,40 @@ from .runtime_manager import LlamaRuntimeManager
 
 
 class DocumentTranslator:
-    """Traduce documentos de cualquier idioma al español manteniendo contexto y estructura."""
+    """Traduce documentos desde cualquier idioma a cualquier idioma destino preservando formato."""
 
     def __init__(self, runtime: Optional[LlamaRuntimeManager] = None):
         self.runtime = runtime or LlamaRuntimeManager.get_instance()
 
-    def translate_to_spanish(
+    def translate(
         self,
         text: str,
+        target_lang: str = "Español",
         source_lang: str = "auto",
         progress_cb: Optional[Callable[[str], None]] = None,
     ) -> str:
         """
-        Traduce el texto al español de España preservando párrafos, cifras y terminología.
+        Traduce el texto al idioma destino indicado preservando párrafos, cifras y terminología.
         """
         if not text.strip():
             return ""
 
         if progress_cb:
-            progress_cb("Traduciendo documento al español con Qwen3-VL...")
+            progress_cb(f"Traduciendo documento a '{target_lang}' con Qwen3-VL...")
 
         lang_hint = (
-            "detectando automáticamente el idioma de origen"
+            "detecting the source language automatically"
             if source_lang == "auto"
-            else f"desde el idioma '{source_lang}'"
+            else f"from '{source_lang}'"
         )
 
         system_prompt = (
-            f"Eres un traductor profesional experto. Traduce el siguiente texto al español de España ({lang_hint}).\n"
-            "REGLAS ESTRICTAS:\n"
-            "1. Mantén el tono profesional, jurídico o técnico del documento original.\n"
-            "2. Conserva la estructura de párrafos, listas, fechas y cifras exactas.\n"
-            "3. No resumas ni omitas información.\n"
-            "4. Devuelve ÚNICAMENTE la traducción final al español, sin introducciones ni notas."
+            f"You are an expert professional translator. Translate the following text into {target_lang} ({lang_hint}).\n"
+            "STRICT RULES:\n"
+            "1. Preserve the professional, legal, or technical tone of the original document.\n"
+            "2. Keep paragraphs, lists, dates, and exact numbers intact.\n"
+            "3. Do not summarize or omit any information.\n"
+            f"4. Return ONLY the final translation in {target_lang}, without introductions or commentary."
         )
 
         messages = [
@@ -54,3 +55,12 @@ class DocumentTranslator:
             with_vision=False,
             progress_cb=progress_cb,
         )
+
+    def translate_to_spanish(
+        self,
+        text: str,
+        source_lang: str = "auto",
+        progress_cb: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """Atajo retrocompatible para traducir al español de España."""
+        return self.translate(text, target_lang="español de España", source_lang=source_lang, progress_cb=progress_cb)
