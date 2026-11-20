@@ -22,6 +22,32 @@ from .formats.txt_builder import build_txt
 from .formats.json_builder import build_json
 
 
+def _pdf_is_image_based(pdf_path: str, min_coverage: float = 0.6) -> bool:
+    """True si la mayoría de páginas son una imagen a (casi) página completa: escaneos o PDF sandwich."""
+    try:
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(pdf_path)
+        try:
+            total = len(doc)
+            if total == 0:
+                return False
+            image_pages = 0
+            for page in doc:
+                page_area = max(page.rect.width * page.rect.height, 1.0)
+                covered = 0.0
+                for info in page.get_image_info():
+                    x0, y0, x1, y1 = info["bbox"]
+                    covered = max(covered, max(0.0, x1 - x0) * max(0.0, y1 - y0))
+                if covered / page_area >= min_coverage:
+                    image_pages += 1
+            return image_pages * 2 > total
+        finally:
+            doc.close()
+    except Exception:
+        return False
+
+
 @dataclass
 class ConversionResult:
     """Resultado del proceso de conversión."""
@@ -102,8 +128,12 @@ class DocumentConverter:
         else:
             final_output_path = output_path
 
-        # Ruta ultrarrápida para PDF nativo -> DOCX (usa pdf2docx directamente sin rasterizar)
-        if fmt == "docx" and is_pdf_input and not force_ocr:
+        # Ruta ultrarrápida para PDF nativo -> DOCX (usa pdf2docx directamente sin rasterizar).
+        # Los PDF "sandwich"/escaneados (imagen a página completa + texto invisible) NO usan esta ruta:
+        # pdf2docx descartaría la imagen y devolvería solo texto suelto; se reconstruyen con fondo + cuadros de texto.
+        if fmt == "docx" and is_pdf_input and not force_ocr and _pdf_is_image_based(str(in_p)):
+            notify("PDF basado en imagen (escaneo/sandwich): reconstruyendo Word fiel con fondo y texto superpuesto...")
+        elif fmt == "docx" and is_pdf_input and not force_ocr:
             pdf_info = DocumentLoader.inspect_pdf_text(str(in_p))
             if pdf_info and pdf_info["all_searchable"]:
                 notify(

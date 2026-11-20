@@ -52,7 +52,7 @@ def sample_text_color_hex(img_rgb: np.ndarray, box: OCRBox) -> str:
     # Los píxeles de texto son los más distantes al color de fondo
     pixels = crop.reshape(-1, 3).astype(np.float32)
     dists = np.linalg.norm(pixels - bg_color.astype(np.float32), axis=1)
-    threshold = np.percentile(dists, 82)
+    threshold = np.percentile(dists, 93)
     fg_pixels = pixels[dists >= threshold]
 
     if len(fg_pixels) == 0:
@@ -179,16 +179,16 @@ def _add_positioned_textbox(
     escaped = _xml_escape(text)
     half_pt = max(10, int(round(font_size_pt * 2)))
     bold_xml = "<w:b/>" if bold else ""
-    # Margen extra ligero en ancho para evitar saltos de línea no deseados
-    box_w = max(w_pt * 1.12, 18.0)
-    box_h = max(h_pt * 1.25, 10.0)
+    # Margen holgado para que Word/WPS (Calibri más ancha que la fuente original) no parta la línea
+    box_w = max(w_pt * 1.35 + 6.0, 18.0)
+    box_h = max(h_pt * 1.5, 12.0)
 
     pict_xml = f"""
     <w:pict {nsdecls('w')} xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
       <v:shape id="TextBox_{shape_id}" type="#_x0000_t202"
-               style="position:absolute;margin-left:{x_pt:.2f}pt;margin-top:{y_pt:.2f}pt;width:{box_w:.2f}pt;height:{box_h:.2f}pt;z-index:{shape_id + 10};mso-position-horizontal-relative:page;mso-position-vertical-relative:page"
+               style="position:absolute;margin-left:{x_pt:.2f}pt;margin-top:{y_pt:.2f}pt;width:{box_w:.2f}pt;height:{box_h:.2f}pt;z-index:{shape_id + 10};mso-position-horizontal-relative:page;mso-position-vertical-relative:page;mso-wrap-style:none"
                filled="f" stroked="f">
-        <v:textbox inset="0pt,0pt,0pt,0pt">
+        <v:textbox inset="0pt,0pt,0pt,0pt" style="mso-wrap-style:none">
           <w:txbxContent>
             <w:p>
               <w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>
@@ -334,6 +334,8 @@ def build_docx(
             w_pt = max(b.width * scale_x, 12.0)
             h_pt = max(b.height * scale_y, 8.0)
             font_pt = max(5.5, min(h_pt * 0.78, 72.0))
+            # Ajustar el cuerpo al ancho real de la caja (Calibri ≈ 0.5 em por carácter)
+            font_pt = max(5.5, min(font_pt, (w_pt * 1.05) / (max(len(text), 1) * 0.5)))
             color_hex = "111111" if grayscale else sample_text_color_hex(rgb_np, b)
             is_bold = b.height > median_h * 1.35
 
