@@ -15,6 +15,7 @@ Uso:
 
 import argparse
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -35,11 +36,14 @@ ALL_MODELS = [
 ]
 
 
-def prepare_offline_repo(repo_dir: Path) -> None:
+def prepare_offline_repo(repo_dir: Path, include_wheels: bool = True) -> None:
     bin_out = repo_dir / "bin"
     models_out = repo_dir / "models"
+    wheels_out = repo_dir / "wheels"
     bin_out.mkdir(parents=True, exist_ok=True)
     models_out.mkdir(parents=True, exist_ok=True)
+    if include_wheels:
+        wheels_out.mkdir(parents=True, exist_ok=True)
 
     rt_gpu = LlamaRuntimeManager(base_dir=BASE_DIR, force_cpu=False)
     rt_cpu = LlamaRuntimeManager(base_dir=BASE_DIR, force_cpu=True)
@@ -95,21 +99,42 @@ def prepare_offline_repo(repo_dir: Path) -> None:
             verify_sha256(dest_file, expected_sha)
         print(f"  ✓ Descargado y verificado SHA-256: {filename}")
 
+    # 3. Paquetes Python offline (wheels de PySide6 / Qt6, FastAPI, RapidOCR, etc.)
+    req_file = BASE_DIR / "requirements.txt"
+    if include_wheels and req_file.exists():
+        local_wheels = BASE_DIR / "offline_repo" / "wheels"
+        if local_wheels.exists() and any(local_wheels.glob("*.whl")) and local_wheels.resolve() != wheels_out.resolve():
+            print(f"\n[Wheels] Copiando wheels offline locales verificados -> {wheels_out}...")
+            for whl in local_wheels.glob("*.whl"):
+                shutil.copy2(whl, wheels_out / whl.name)
+        else:
+            print(f"\n[Wheels] Descargando dependencias Python offline en: {wheels_out}...")
+            subprocess.run(
+                [sys.executable, "-m", "pip", "download", "-r", str(req_file), "-d", str(wheels_out)],
+                check=True,
+            )
+        print(f"  ✓ Wheels Python listos en {wheels_out}")
+
     print("\n" + "=" * 68)
     print(f"OK! Repositorio offline universal listo en: {repo_dir}")
-    print("Incluye binarios GPU Vulkan + CPU y modelos 4B + 2B + BGE-M3 verificados.")
+    print("Incluye binarios GPU Vulkan + CPU, modelos 4B + 2B + BGE-M3 y wheels Python/Qt6.")
     print("=" * 68)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Genera el repositorio offline universal para despliegues MSI.")
+    parser = argparse.ArgumentParser(description="Genera el repositorio offline universal para despliegues MSI y USB.")
     parser.add_argument(
         "--output",
         default=str(BASE_DIR / "dist" / "Open_OCReader_Enterprise_Kit" / "offline_repo"),
         help="Ruta destino del repositorio offline_repo.",
     )
+    parser.add_argument(
+        "--skip-wheels",
+        action="store_true",
+        help="Omitir la descarga de wheels Python (.whl) y preparar solo bin/ y models/.",
+    )
     args = parser.parse_args()
-    prepare_offline_repo(Path(args.output))
+    prepare_offline_repo(Path(args.output), include_wheels=not args.skip_wheels)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Deque, Dict, Optional
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .. import __version__
 from ..converter import DocumentConverter
@@ -175,6 +175,13 @@ def create_app() -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    @api.get("/", response_class=HTMLResponse, include_in_schema=False)
+    @api.get("/app", response_class=HTMLResponse, include_in_schema=False)
+    def mobile_web_ui():
+        """Sirve la interfaz web accesible 100% offline para móviles y red local."""
+        from .web_ui import WEB_UI_HTML
+        return HTMLResponse(content=WEB_UI_HTML)
+
     @api.get("/api/v1/health")
     def health_check(
         x_api_key: Optional[str] = Header(default=None),
@@ -306,6 +313,29 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.exception(f"[API] Error en summarize: {e}")
             raise HTTPException(status_code=500, detail="Error interno al resumir el documento.")
+
+    @api.post("/api/v1/ai/easy-read", dependencies=[Depends(_verify_api_key)])
+    def ai_easy_read(
+        background_tasks: BackgroundTasks,
+        file: UploadFile = File(...),
+        handwriting: bool = Form(False),
+        lang: str = Form("es"),
+    ):
+        from ..ai import DocumentQA, LlamaRuntimeManager
+        from ..i18n import get_llm_language_name
+        in_path = _save_upload_to_temp(file)
+        background_tasks.add_task(_cleanup_paths, in_path.parent)
+        try:
+            text = _extract_document_text(in_path, handwriting=handwriting)
+            easy = DocumentQA(LlamaRuntimeManager.get_instance()).summarize_easy_read(
+                text, response_lang=get_llm_language_name(lang)
+            )
+            return JSONResponse({"filename": in_path.name, "lang": lang, "easy_read": easy})
+        except SecurityError as se:
+            raise HTTPException(status_code=400, detail=str(se))
+        except Exception as e:
+            logger.exception(f"[API] Error en easy-read: {e}")
+            raise HTTPException(status_code=500, detail="Error interno adaptando el documento a Lectura Fácil.")
 
     @api.post("/api/v1/ai/translate", dependencies=[Depends(_verify_api_key)])
     def ai_translate(

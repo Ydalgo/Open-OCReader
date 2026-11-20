@@ -95,7 +95,7 @@ Gran parte de la arquitectura técnica, la ingeniería de contexto sin límites 
    Preservación de los tensores de atención del prompt del sistema para reducir a milisegundos la latencia de primer token en turnos de conversación sucesivos.
 
 > 📢 **Derivación y Colaboración en GuarIdA**:
-> Invitamos formalmente a los usuarios de Open OCReader, investigadores y administraciones interesadas en la soberanía del dato a conocer, evaluar y colaborar con el proyecto **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**, el cual se encuentra actualmente en fase activa de desarrollo y sentará las bases de la próxima generación de asistentes soberanos.
+> Te invito a conocer, probar y seguir de cerca mi otro proyecto, **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**, que todavía estoy desarrollando activamente y donde sigo ampliando la próxima generación de asistentes documentales soberanos. ¡Te agradezco mucho cualquier apoyo, sugerencia o estrella!
 
 ---
 

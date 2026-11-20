@@ -10,7 +10,19 @@ from .formats.docx_builder import build_docx
 from .formats.excel_builder import build_excel
 from .formats.txt_builder import build_txt
 from .formats.json_builder import build_json
-from .gui import launch_gui, OpenOCReaderGUI
+
+try:
+    from .gui import launch_gui, OpenOCReaderGUI
+except ImportError:
+    OpenOCReaderGUI = None
+    try:
+        from .gui_qt import launch_gui_qt as launch_gui
+    except ImportError:
+
+        def launch_gui(*args, **kwargs):
+            raise RuntimeError(
+                "Ningún motor GUI disponible (instala PySide6 o python3-tk para usar la interfaz gráfica)."
+            )
 
 __version__ = "0.3.1"
 __all__ = [

@@ -98,3 +98,28 @@ Se incluye la plantilla endurecida **`deploy/nginx_tls13.conf`** configurada con
 | `OPEN_OCREADER_SYSLOG_HOST` | Host del colector Syslog/SIEM corporativo | *(desactivado)* |
 | `OPEN_OCREADER_SYSLOG_PORT` | Puerto del colector Syslog/SIEM | `514` |
 | `OPEN_OCREADER_LOCK_LOGS` | `1` bloquea el borrado de logs (inmutabilidad ENS) | `0` |
+
+---
+
+## 7. Despliegue Contenerizado (`Docker` / `Docker Compose`) e Interfaz Web Móvil
+
+Puedes levantar el servidor REST completo **y** la interfaz Web responsiva 100 % offline para móviles y navegadores de escritorio mediante `Dockerfile` y `docker-compose.yml`:
+
+### Arranque rápido HTTP (red local / intranet)
+```bash
+# Construye e inicia el contenedor no-root (usuario ocreader, puerto 8000)
+docker compose up -d --build
+```
+* **Interfaz Web Móvil/PC**: abre `http://<IP-DEL-SERVIDOR>:8000/` (o `/app`) desde cualquier dispositivo en la red. Incluye captura de cámara/archivos, conversión, traducción, IA Local (`Lectura Fácil UNE 153101 EX` en `POST /api/v1/ai/easy-read`), anonimización RGPD y chat con citas literales, además de panel de accesibilidad integrado.
+* **Swagger UI**: `http://<IP-DEL-SERVIDOR>:8000/docs`.
+
+### Arranque en producción con Nginx TLS 1.3 (`--profile tls`)
+1. Coloca `fullchain.pem` y `privkey.pem` en `./deploy/certs/`.
+2. Inicia el stack completo con proxy inverso endurecido (`deploy/nginx_docker_tls13.conf`):
+```bash
+docker compose --profile tls up -d --build
+```
+Esto expone HTTPS **TLS 1.3** en el puerto **`8443`** (y redirección HTTP en **`8080`**).
+
+### Volúmenes persistentes y límites de contenedor
+* El servicio `open-ocreader-server` monta `./models`, `./bin`, `./cache`, `./logs` y `./config` en `/app/*`, ejecuta con `no-new-privileges:true`, usuario no privilegiado (`ocreader`, UID `10001`), telemetría desactivada (`HF_HUB_DISABLE_TELEMETRY=1`, `DO_NOT_TRACK=1`), límite de memoria configurable (`OCREADER_MEM_LIMIT`, `8g` por defecto) y `HEALTHCHECK` automático cada 30 s contra `/api/v1/health`.

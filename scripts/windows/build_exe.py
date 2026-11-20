@@ -224,6 +224,11 @@ def build_with_nuitka(base_dir: Path, src_dir: Path, target: str, onefile: bool)
             "--windows-console-mode=disable",
             "--enable-plugin=tk-inter",
         ])
+        try:
+            import PySide6  # noqa: F401
+            cmd.append("--enable-plugin=pyside6")
+        except ImportError:
+            pass
         if ico_file.exists():
             cmd.append(f"--windows-icon-from-ico={ico_file}")
         if ico_dir.exists():
@@ -288,11 +293,17 @@ def build_with_pyinstaller(base_dir: Path, src_dir: Path, target: str, onefile: 
         "--hidden-import=requests",
         "--hidden-import=huggingface_hub",
         "--hidden-import=open_ocreader.paths",
+        "--hidden-import=open_ocreader.accessibility",
+        "--hidden-import=open_ocreader.gui_common",
+        "--hidden-import=open_ocreader.gui_qt",
         "--hidden-import=open_ocreader.ai",
         "--hidden-import=open_ocreader.ai.doc_tree",
         "--hidden-import=open_ocreader.ai.doc_cache",
         "--hidden-import=open_ocreader.ai.multi_doc_chat",
         "--hidden-import=open_ocreader.pdf_tools",
+        "--exclude-module=PySide6.QtWebEngineCore",
+        "--exclude-module=PySide6.QtWebEngineWidgets",
+        "--exclude-module=PySide6.QtWebEngineQuick",
         "--exclude-module=torch",
         "--exclude-module=torchvision",
         "--exclude-module=transformers",

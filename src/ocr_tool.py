@@ -62,6 +62,12 @@ def main():
     )
 
     parser.add_argument("-g", "--gui", action="store_true", help="Forzar la apertura de la interfaz gráfica.")
+    parser.add_argument(
+        "--gui-engine",
+        choices=["auto", "qt", "tk"],
+        default="auto",
+        help="Motor gráfico: 'qt' (PySide6 nativo, por defecto en 'auto') o 'tk' (respaldo Tkinter).",
+    )
     parser.add_argument("-o", "--output", default=None, help="Ruta del fichero de salida generado.")
     parser.add_argument(
         "-f",
@@ -162,7 +168,7 @@ def main():
 
     if not args.input_file or args.gui:
         hide_console_window()
-        launch_gui()
+        launch_gui(engine=args.gui_engine)
         sys.exit(0)
 
     input_path = Path(args.input_file)

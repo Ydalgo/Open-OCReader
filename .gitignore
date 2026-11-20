@@ -50,6 +50,8 @@ models/
 bin/
 logs/
 cache/
+config/
+offline_repo/
 *.log
 *.gguf
 

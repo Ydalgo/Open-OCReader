@@ -38,7 +38,7 @@ Para blindar el repositorio público frente a ataques a la cadena de suministro:
 2. **Activar Seguridad Nativa de GitHub** (`Settings -> Code security and analysis`):
    - **Secret scanning** + **Push protection** (bloquea automáticamente cualquier push que contenga un token o clave).
    - **Dependabot alerts** y **Dependabot security updates** (avisa de CVEs en `requirements.txt` y `requirements.lock.txt`).
-   - *(Agradecimiento especial a **[GitHub Dependabot](https://github.com/dependabot) (`dependabot[bot]`)** por su mantenimiento proactivo de las dependencias de producción como `pillow`, `pypdf` y `python-multipart`).*
+   - *(Te agradezco especialmente a ti, **[GitHub Dependabot](https://github.com/dependabot) (`dependabot[bot]`)**, el trabajo revisando y manteniendo al día dependencias clave como `pillow`, `pypdf` y `python-multipart`).*
 3. **Higiene de Tokens (PAT)**:
    - Usar **Fine-grained Personal Access Tokens** con caducidad corta (30–90 días) y permisos mínimos (solo el repositorio `Open-OCReader`).
    - Rotar y revocar inmediatamente cualquier token que haya sido compartido o expuesto en historial de chat o terminal.

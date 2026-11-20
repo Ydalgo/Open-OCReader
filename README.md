@@ -15,8 +15,8 @@
 
 **Open OCReader** es una suite de código abierto, ligera, **100% local (offline)** y endurecida para la digitalización fiel de documentos, el reconocimiento de **letra manuscrita** y el análisis documental mediante Inteligencia Artificial.
 
-> 🛡️ **Arquitectura e Ingeniería compartida con el Proyecto Hermano [GuarIdA](https://github.com/Ydalgo/GuarIdA)**:
-> El motor de contexto sin límite de páginas (**Árbol de Nodos Documental AST**, **Compresión BPE**, **Búsqueda Híbrida RRF BM25 + BGE-M3**, **Persistencia Segregada SQLite WAL comprimida por SHA-256**, **Reutilización de KV Cache** y **Observación Dinámica de Hardware**) proviene de las investigaciones, ADRs y código del proyecto **[GuarIdA](https://github.com/Ydalgo/GuarIdA)** (*Guardián de Identidad y Asistencia con IA Local Soberana*, actualmente en desarrollo activo). ¡Te invitamos a visitarlo, darle una ⭐ y seguir su evolución!
+> 🛡️ **Arquitectura e Ingeniería que comparto con mi otro proyecto, [GuarIdA](https://github.com/Ydalgo/GuarIdA)**:
+> El motor de contexto sin límite de páginas (**Árbol de Nodos Documental AST**, **Compresión BPE**, **Búsqueda Híbrida RRF BM25 + BGE-M3**, **Persistencia Segregada SQLite WAL comprimida por SHA-256**, **Reutilización de KV Cache** y **Observación Dinámica de Hardware**) viene directamente de las investigaciones, ADRs y código de **[GuarIdA](https://github.com/Ydalgo/GuarIdA)** (*Guardián de Identidad y Asistencia con IA Local Soberana*, que aún estoy desarrollando). ¡Te invito a pasarte por allí, dejarle una ⭐ si te gusta y seguir cómo va creciendo!
 
 ---
 
@@ -37,13 +37,18 @@
 ```text
 Open OCReader/
 ├── src/                      # Código fuente en Python
-│   ├── ocr_tool.py           # CLI principal (consola y lanzador GUI)
-│   ├── ocr_server.py         # Modo Servidor API REST (FastAPI + Uvicorn)
+│   ├── ocr_tool.py           # CLI principal (consola y lanzador GUI --gui-engine auto|qt|tk)
+│   ├── ocr_server.py         # Modo Servidor API REST + Web Móvil (FastAPI + Uvicorn)
 │   ├── Open_OCReader.pyw     # Lanzador gráfico sin consola (Windows)
-│   └── open_ocreader/        # Núcleo modular (OCR, formatos, GUI, IA, API, seguridad, logs)
+│   └── open_ocreader/        # Núcleo modular (gui_qt.py, gui.py, gui_common.py, accessibility.py, OCR, IA, server/web_ui.py)
 ├── scripts/
-│   ├── windows/              # Compilador Nuitka/PyInstaller y lanzadores .bat (GUI y Servidor)
+│   ├── windows/              # Compilador Nuitka/PyInstaller, instalar_offline.bat y lanzadores .bat
 │   └── linux/                # Scripts .sh de instalación, compilación y servicio systemd
+├── deploy/                   # Configuración Nginx TLS 1.3 (host y Docker)
+├── Dockerfile                # Imagen Docker endurecida (usuario no-root) para el servidor REST + Web
+├── docker-compose.yml        # Orquestación Docker (`open-ocreader-server` + perfil opcional `tls`)
+├── requirements-server.txt   # Dependencias headless ligeras para servidor Linux/Docker
+├── .dockerignore             # Exclusiones limpias de compilación de imagen Docker
 ├── ico/                      # Icono oficial (.ico y .png) para ventana y ejecutable
 ├── models/                   # Modelos GGUF locales (Qwen3-VL-4B-Instruct + mmproj)
 ├── bin/                      # Binarios portables de llama.cpp (GPU Vulkan / Metal / CPU)
@@ -52,6 +57,24 @@ Open OCReader/
 ├── docs/                     # Guías de instalación, cumplimiento normativo y licencia
 └── SECURITY.md               # Política y controles de ciberseguridad
 ```
+
+## 🐳 Servidor Docker, Web Móvil y Kit Offline (otros PCs)
+
+Si quieres desplegar **Open OCReader** en tu red local, intranet o servidor Linux con acceso directo desde el navegador del móvil o PC (100 % offline, con accesibilidad, cámara, traducción, conversión y Q&A documental):
+
+```bash
+# Modo HTTP local / LAN (puerto 8000, Web UI integrada en / y /app)
+docker compose up -d --build
+
+# Modo producción con Nginx + TLS 1.3 (puerto 8443)
+docker compose --profile tls up -d --build
+```
+
+Para llevar la aplicación completa (con **Qt 6 / PySide6**) a otros PCs **sin conexión a Internet**:
+
+1. Ejecuta `python scripts\windows\prepare_offline_repo.py` para empaquetar modelos, binarios de `llama.cpp` y todos los paquetes `.whl` en `offline_repo/wheels/` (incluido `PySide6`).
+2. Copia la carpeta del proyecto al otro PC y ejecuta `scripts\windows\instalar_offline.bat` para instalar todas las dependencias en local sin red.
+3. Si alguna vez necesitas forzar uno de los dos motores gráficos: `python src/ocr_tool.py --gui --gui-engine qt` (principal por defecto) o `--gui-engine tk` (respaldo Tkinter).
 
 ---
 
@@ -72,6 +95,12 @@ Open OCReader/
    - **✍️ Borrado de firmas digitales** (campos `/Sig`, bloqueos `DocMDP` y sellos visuales).
    - **🧽 Limpieza de marcas de agua** (anotaciones `/Watermark`, capas OCG, texto específico y limpieza OpenCV en escaneos).
    - **🗜️ Optimización directa** (compresión, escala de grises y conversión a PDF/A-2b). Desactivable por política ENS con `OPEN_OCREADER_DISABLE_PDF_TOOLS=1`.
+
+4. **♿ Accesibilidad Universal y Diseño Elástico Responsivo (`accessibility.py`)**
+   - **Maquetación elástica sin recortes**: barras de herramientas fluidas multi-fila, grillas adaptativas, etiquetas de pestañas dinámicas y scroll vertical inteligente ante cualquier resolución, escala HiDPI o nivel de zoom.
+   - **Accesibilidad Visual**: zoom global de toda la interfaz (`90%–180%` con `A-`/`A+`/`Ctrl++`), temas **Alto Contraste WCAG AAA (>15:1)** claro/oscuro, y **síntesis de voz 100% offline** (SAPI/PowerShell en Windows, `spd-say`/`espeak-ng` en Linux, `say` en macOS) con guía de voz y botón **`🔊 Leer`**.
+   - **Accesibilidad Cognitiva y Dislexia**: tipografía amigable (`OpenDyslexic` / `Verdana` + interlineado amplio), fondo crema cálido anti-estrés visual y botón **`♿ Lectura Fácil`** en IA Local adaptado a la norma **UNE 153101 EX**.
+   - **Accesibilidad Motora y Teclado**: objetivos clicables ampliados (anti-temblor), perfiles rápidos en 1 clic desde **`♿ Accesibilidad`** (`Alt+A` / `F2`) y atajos globales (`Alt+1..6`, `Ctrl+Shift+L`, `Ctrl+Shift+H`, `Ctrl+O`, `Ctrl+Enter`).
 
 ---
 
@@ -173,11 +202,11 @@ python src/ocr_tool.py --update
 
 ## 🛠️ Tecnologías Utilizadas, Créditos y Agradecimiento Personal
 
-> **Agradecimiento de Ydalgo:**
-> *Este proyecto no habría sido posible sin el trabajo generoso y brillante de miles de desarrolladores, investigadores y comunidades de software libre de todo el mundo. Quiero expresar mi más sincero agradecimiento personal a todos los autores, mantenedores y organizaciones detrás de cada una de estas tecnologías por compartirlas abiertamente y permitirnos construir herramientas libres, privadas y al alcance de cualquiera.*
+> **Un mensaje mío (Ydalgo):**
+> *Este proyecto no existiría sin el trabajo brutal y generoso de muchísimos desarrolladores, investigadores y comunidades de software libre de todo el mundo. Si has participado en cualquiera de estas herramientas o librerías, **te agradezco de corazón** que las compartas en abierto para que pueda construir cosas libres, privadas y útiles para cualquiera.*
 
 ### 🐍 Lenguajes y Sistemas Operativos
-* **[Python](https://www.python.org/)**: Lenguaje principal que orquesta toda la aplicación (núcleo OCR, interfaz gráfica con `Tkinter`, CLI, API REST, mantenimiento y gobernanza). Elegido por su claridad, ecosistema científico y portabilidad multiplataforma.
+* **[Python](https://www.python.org/)**: Lenguaje principal que orquesta toda la aplicación (núcleo OCR, interfaz gráfica dual con **Qt 6 / `PySide6`** como motor principal y **`Tkinter`** como respaldo automático, CLI, API REST, Web Móvil, mantenimiento y gobernanza). Elegido por su claridad, ecosistema científico y portabilidad multiplataforma.
 * **C / C++**: Lenguaje en el que están escritos los motores de alto rendimiento subyacentes (`llama.cpp`, `ONNX Runtime`, `OpenCV`, `PDFium`) y al que **Nuitka** compila la aplicación para distribuir ejecutables nativos rápidos y autónomos.
 * **Batch / PowerShell y Bash / `systemd`**: Scripts nativos de automatización, instalación, compilación y servicios del sistema.
 * **Sistemas Operativos soportados**: **Windows**, **GNU/Linux** y **macOS**, con detección automática de aceleración gráfica mediante **[Vulkan](https://www.vulkan.org/)**, **Apple Metal** o **CPU**.
@@ -211,12 +240,12 @@ Un pilar fundamental de la arquitectura y la ingeniería de contexto de **Open O
   6. **Reutilización de KV Cache (`cache_prompt`)**: Optimización del tiempo a primer token (TTFT) en diálogos multivuelta.
 
 > 🌟 **¿Te interesa la Inteligencia Artificial Local, Soberana y Privada?**
-> Te invitamos cordialmente a conocer, dar una estrella ⭐ y seguir el desarrollo de **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**. El proyecto se encuentra actualmente en desarrollo activo y ampliará sustancialmente las capacidades de asistencia soberana, análisis de identidad y privacidad documental.
+> Te invito a pasarte por **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**, conocer lo que estoy armando y dejarle una ⭐ si te llama la atención. Todavía está en desarrollo activo (aún no lo he terminado), pero de ahí han salido muchas de las piezas clave que hoy hacen funcionar a Open OCReader. ¡Te agradezco mucho cualquier apoyo, idea o estrella!
 
 ### 🌐 Servidor API, Compilación Nativa y Seguridad Continua
-* **[FastAPI](https://fastapi.tiangolo.com/)**, **[Uvicorn](https://www.uvicorn.org/)** y **[Nginx](https://nginx.org/)**: Base del modo servidor REST endurecido, documentación interactiva Swagger UI y despliegue con cifrado **TLS 1.3**.
-* **[Nuitka](https://nuitka.net/)** y **[PyInstaller](https://pyinstaller.org/)**: Herramientas de compilación que permiten empaquetar Open OCReader en ejecutables independientes para ordenadores sin Python instalado.
-* **[GitHub Dependabot](https://github.com/dependabot)**: Nuestro agradecimiento especial al bot oficial de mantenimiento y seguridad de GitHub por auditar continuamente la cadena de suministro (`requirements.txt` y `requirements.lock.txt`), alertar sobre vulnerabilidades (CVEs) y proponer actualizaciones automáticas verificadas para mantener Open OCReader siempre seguro.
+* **[FastAPI](https://fastapi.tiangolo.com/)**, **[Uvicorn](https://www.uvicorn.org/)** y **[Nginx](https://nginx.org/)**: Base del modo servidor REST endurecido, documentación interactiva Swagger UI y despliegue con cifrado **TLS 1.3** (ahora también listo en **Docker**).
+* **[Nuitka](https://nuitka.net/)** y **[PyInstaller](https://pyinstaller.org/)**: Herramientas de compilación con las que empaqueto Open OCReader en ejecutables independientes para ordenadores sin Python instalado.
+* **[GitHub Dependabot](https://github.com/dependabot)**: Te agradezco un montón el trabajo constante vigilando las dependencias (`requirements.txt` y `requirements.lock.txt`), avisándome de vulnerabilidades (CVEs) y preparando las actualizaciones automáticas para mantener Open OCReader siempre seguro y al día.
 
 ---
 

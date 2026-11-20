@@ -27,6 +27,20 @@ Todos los cambios notables de este proyecto se documentan en este fichero.
 * **Iconos Vectoriales en Color Anti-Aliased, Logotipo de Cabecera y Capturas v0.3.1**:
   * Sustitución de los glifos monocromos de Tkinter/GDI por iconos vectoriales a todo color supermuestreados 4x (`LANCZOS`) en las 6 pestañas y en todos los botones superiores de acciones, junto al logotipo oficial en cabecera (`ico/Open_OCReader.png`).
   * Actualización de las capturas de pantalla reales en `docs/screenshots/` (`gui_conversion.png`, `gui_translate.png`, `gui_chat.png`, `gui_ia.png`) mostradas en la portada de `README.md`.
+* **Interfaz Elástica Sin Recortes y Suite de Accesibilidad Universal (`accessibility.py`, `♿ Accesibilidad`)**:
+  * Maquetación completamente fluida con `ResponsiveFlowFrame`, `VerticalScrollableFrame`, grillas elásticas de 1 o 2 columnas, etiquetas adaptativas de pestañas y envoltorio automático en barras y textos (cero recortes horizontales ni verticales en cualquier pantalla o zoom).
+  * **Accesibilidad Visual**: escalado global real de toda la UI (`A-`/`100%`/`A+` de `90%` a `180%`), perfiles cromáticos **Alto Contraste WCAG AAA (>15:1)** claro/oscuro y lector de voz offline local (Windows SAPI/PowerShell, Linux `spd-say`/`espeak-ng`, macOS `say`) con botones `🔊 Leer` / `⏹️` y guía vocal automática opcional.
+  * **Accesibilidad Cognitiva**: tema **Crema Cálido** anti-estrés visual, tipografía para dislexia (`OpenDyslexic`/`Verdana` con interlineado amplio) y botón **`♿ Lectura Fácil`** en IA Local basado en la norma **UNE 153101 EX** (`DocumentQA.summarize_easy_read`).
+  * **Accesibilidad Motora y de Teclado**: objetivos táctiles ampliados (anti-temblor), 5 perfiles rápidos en 1 clic desde `♿ Accesibilidad` (`Alt+A` / `F2`) y atajos de teclado completos (`Alt+1..6`, `Ctrl++/-/0`, `Ctrl+Shift+L`, `Ctrl+Shift+H`, `Ctrl+O`, `Ctrl+Enter`).
+* **Migración a Qt 6 (`PySide6`) con Modo Dual `--gui-engine auto|qt|tk` (`gui_qt.py`, `gui_common.py`)**:
+  * Nueva interfaz gráfica nativa en **Qt 6 (`PySide6`)** como motor principal (`auto`), conservando **Tkinter** como respaldo automático zero-dependency. Tipografía directa (`DirectWrite`/HarfBuzz), iconos `QPainter` de alta precisión, `FlowLayout`, HiDPI nativo y metadatos `accessibleName` para lectores de pantalla.
+  * Re-escritura del `README.md`, `SECURITY.md` y documentación en primera persona cercana (`yo` / informal) reconociendo la arquitectura heredada de **GuarIdA** y los aportes de **Dependabot**.
+* **Portabilidad 100 % Offline para Otros PCs (`offline_repo/wheels/` + `instalar_offline.bat`)**:
+  * Empaquetado completo de dependencias Python en formato `.whl` (incluyendo `PySide6`) mediante `prepare_offline_repo.py` e instalador directo `scripts/windows/instalar_offline.bat` (`pip install --no-index --find-links`) para llevar la app a equipos aislados sin red.
+  * Soporte en `scripts/windows/build_exe.py` para compilar la nueva interfaz Qt 6 con Nuitka (`--enable-plugin=pyside6`) o PyInstaller excluyendo `QtWebEngine*`.
+* **Arquitectura Docker + Interfaz Web Móvil/PC (`Dockerfile`, `docker-compose.yml`, `web_ui.py`)**:
+  * Despliegue contenerizado endurecido (usuario no-root `ocreader`, `requirements-server.txt`, healthcheck y perfil opcional `--profile tls` con Nginx TLS 1.3) listo para intranet o servidores Linux.
+  * Interfaz web responsiva 100 % offline servida en `GET /` y `GET /app` desde `api.py` (con captura desde cámara, conversión, traducción, Lectura Fácil `POST /api/v1/ai/easy-read`, anonimización, Q&A con citas literales y panel de accesibilidad integrado).
 
 ### Seguridad y Auditoría Completa
 * **Mitigación contra Inyección Indirecta de Prompts (Indirect Prompt Injection)**:

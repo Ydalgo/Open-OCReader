@@ -164,31 +164,67 @@ class DocumentQA:
         doc_tree: Optional[ArbolNodosDocumento] = None,
     ) -> str:
         """Genera un resumen ejecutivo usando el Árbol AST + compresión BPE (Map-Reduce jerárquico)."""
+        return self._run_hierarchical_summary(
+            document_text=document_text,
+            response_lang=response_lang,
+            single_fn=self._summarize_single,
+            label="resumen ejecutivo",
+            progress_cb=progress_cb,
+            doc_tree=doc_tree,
+        )
+
+    def summarize_easy_read(
+        self,
+        document_text: str,
+        response_lang: str = "español de España",
+        progress_cb: Optional[Callable[[str], None]] = None,
+        doc_tree: Optional[ArbolNodosDocumento] = None,
+    ) -> str:
+        """Adapta el documento a Lectura Fácil (Norma UNE 153101 EX / Easy-to-Read) para accesibilidad cognitiva."""
+        return self._run_hierarchical_summary(
+            document_text=document_text,
+            response_lang=response_lang,
+            single_fn=self._summarize_easy_read_single,
+            label="adaptación a Lectura Fácil (UNE 153101 EX)",
+            progress_cb=progress_cb,
+            doc_tree=doc_tree,
+        )
+
+    def _run_hierarchical_summary(
+        self,
+        document_text: str,
+        response_lang: str,
+        single_fn: Callable[[str, str, Optional[Callable[[str], None]]], str],
+        label: str,
+        progress_cb: Optional[Callable[[str], None]] = None,
+        doc_tree: Optional[ArbolNodosDocumento] = None,
+    ) -> str:
+        """Ejecuta resumen o adaptación Map-Reduce jerárquica sobre el Árbol AST."""
         if not document_text.strip():
             return "No readable text found in the document."
 
         min_text = minificar_texto_bpe(document_text)
         if len(min_text) <= self.MAX_CONTEXT_CHARS:
             if progress_cb:
-                progress_cb(f"Generando resumen ejecutivo en {response_lang}...")
-            return self._summarize_single(min_text, response_lang, progress_cb)
+                progress_cb(f"Generando {label} en {response_lang}...")
+            return single_fn(min_text, response_lang, progress_cb)
 
         tree = doc_tree or ArbolNodosDocumento.construir_desde_texto(document_text)
         bloques = tree.obtener_bloques_para_resumen(max_chars_bloque=self.MAX_CONTEXT_CHARS)
         if len(bloques) <= 1:
-            return self._summarize_single(bloques[0] if bloques else min_text[: self.MAX_CONTEXT_CHARS], response_lang, progress_cb)
+            return single_fn(bloques[0] if bloques else min_text[: self.MAX_CONTEXT_CHARS], response_lang, progress_cb)
 
         partial_summaries = []
         for idx, bloque in enumerate(bloques, start=1):
             if progress_cb:
-                progress_cb(f"Resumiendo rama AST {idx}/{len(bloques)} en {response_lang}...")
+                progress_cb(f"Analizando rama AST {idx}/{len(bloques)} para {label} en {response_lang}...")
             part_prompt = (
-                f"You are an expert document analyst. Summarize this document branch ({idx}/{len(bloques)}) "
-                f"concisely in {response_lang}, keeping key facts, names, dates, and numbers."
+                f"You are an expert document analyst. Extract and summarize this document branch ({idx}/{len(bloques)}) "
+                f"concisely in {response_lang}, keeping all key facts, names, dates, obligations, and numbers."
             )
             messages = [
                 {"role": "system", "content": part_prompt},
-                {"role": "user", "content": bloque},
+                {"role": "user", "content": sanitize_llm_input(bloque)},
             ]
             partial = self.runtime.chat_completion(
                 messages=messages,
@@ -204,9 +240,9 @@ class DocumentQA:
             combined = combined[: self.MAX_CONTEXT_CHARS]
 
         if progress_cb:
-            progress_cb(f"Sintetizando resumen ejecutivo final ({len(bloques)} ramas AST)...")
+            progress_cb(f"Sintetizando {label} final ({len(bloques)} ramas AST)...")
 
-        return self._summarize_single(combined, response_lang, progress_cb)
+        return single_fn(combined, response_lang, progress_cb)
 
     def _summarize_single(
         self,
@@ -232,6 +268,43 @@ class DocumentQA:
         return self.runtime.chat_completion(
             messages=messages,
             max_tokens=1536,
+            temperature=0.2,
+            with_vision=False,
+            progress_cb=progress_cb,
+        )
+
+    def _summarize_easy_read_single(
+        self,
+        text: str,
+        response_lang: str,
+        progress_cb: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        safe_text = sanitize_llm_input(text)
+        task_instructions = (
+            "COGNITIVE ACCESSIBILITY TASK (EASY-TO-READ / NORMA UNE 153101 EX):\n"
+            "Adapt the document below so it is immediately clear and understandable for people with reading "
+            "difficulties, cognitive disabilities, or unfamiliarity with legal/medical/administrative jargon.\n"
+            "STRICT RULES:\n"
+            "- Use short, direct sentences (maximum one main idea per sentence or line).\n"
+            "- Use plain everyday words; whenever a technical, legal, or medical term is essential, keep it and "
+            "explain its exact meaning in simple words right inside parentheses.\n"
+            "- Avoid abbreviations, passive voice, double negatives, and dense paragraphs.\n"
+            "REQUIRED 4-SECTION STRUCTURE (translate headings naturally into the target language):\n"
+            "1. ¿Qué es este documento? (1-2 simple sentences)\n"
+            "2. Ideas principales (paso a paso, short bullet points)\n"
+            "3. Palabras difíciles explicadas de forma sencilla\n"
+            "4. Fechas, importes o pasos que debes realizar (if none appear, state so clearly)."
+        )
+        system_prompt = build_system_prompt(task_instructions, response_lang=response_lang)
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": safe_text},
+        ]
+
+        return self.runtime.chat_completion(
+            messages=messages,
+            max_tokens=1792,
             temperature=0.2,
             with_vision=False,
             progress_cb=progress_cb,
