@@ -22,9 +22,13 @@
 
 ## 🖼️ Capturas de Pantalla
 
-| Conversión Estructural Rápida (PDF Sandwich, Word, Excel) | IA Local y Manuscritos (`Qwen3-VL-4B` vía `llama.cpp`) |
+| Conversión Estructural (10 Formatos y PDF/A-2b) | Traducción Fiel de Documentos a Fichero |
 | :---: | :---: |
-| ![Conversión Estructural](docs/screenshots/gui_conversion.png) | ![IA Local y Manuscritos](docs/screenshots/gui_ia.png) |
+| ![Conversión Estructural](docs/screenshots/gui_conversion.png) | ![Traducción de Documentos](docs/screenshots/gui_translate.png) |
+
+| Chat Multi-Documento con Citas (AST + BGE-M3 + Exportación) | IA Local, Manuscritos y Preguntas con Referencias Literales |
+| :---: | :---: |
+| ![Chat Multi-Documento](docs/screenshots/gui_chat.png) | ![IA Local y Preguntas](docs/screenshots/gui_ia.png) |
 
 ---
 

@@ -16,7 +16,7 @@ import webbrowser
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from PIL import ImageGrab
+from PIL import Image, ImageDraw, ImageGrab, ImageTk
 from .converter import DocumentConverter
 from .document_loader import DocumentLoader
 from .engine import OCREngine
@@ -46,6 +46,171 @@ try:
     HAS_WIN32CLIP = True
 except ImportError:
     HAS_WIN32CLIP = False
+
+
+def _resolve_ico_dir() -> Path | None:
+    """Localiza el directorio de recursos gráficos 'ico/' en modo fuente o compilado."""
+    candidates = []
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.extend([exe_dir / "ico", exe_dir / "_internal" / "ico"])
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass) / "ico")
+    else:
+        candidates.append(Path(__file__).resolve().parent.parent.parent / "ico")
+    return next((d for d in candidates if d.exists()), None)
+
+
+def _strip_leading_emoji(text: str) -> str:
+    """Elimina el emoji inicial monocromo para acompañar limpiamente al icono en color."""
+    s = (text or "").strip()
+    if not s:
+        return ""
+    parts = s.split(" ", 1)
+    if len(parts) == 2 and parts[0] and not parts[0][0].isalnum():
+        s = parts[1].strip()
+    return f" {s}" if s else ""
+
+
+def _render_icon_photo(draw_fn, master: tk.Misc, size: int = 16) -> ImageTk.PhotoImage:
+    """Renderiza un icono vectorial sobre un lienzo 4x (anti-aliased LANCZOS)."""
+    hi = size * 4
+    img = Image.new("RGBA", (hi, hi), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw_fn(draw, hi)
+    small = img.resize((size, size), Image.Resampling.LANCZOS)
+    return ImageTk.PhotoImage(small, master=master)
+
+
+def _build_supersampled_ui_icons(master: tk.Misc, dark_mode: bool) -> dict[str, ImageTk.PhotoImage]:
+    """Genera iconos nítidos a todo color y carga el logotipo oficial de la cabecera."""
+    icons: dict[str, ImageTk.PhotoImage] = {}
+
+    # Logo oficial de cabecera (34x34 con esquinas limpias)
+    ico_dir = _resolve_ico_dir()
+    if ico_dir and (ico_dir / "Open_OCReader.png").exists():
+        try:
+            logo_pil = Image.open(ico_dir / "Open_OCReader.png").convert("RGBA")
+            logo_pil = logo_pil.resize((34, 34), Image.Resampling.LANCZOS)
+            icons["logo"] = ImageTk.PhotoImage(logo_pil, master=master)
+        except Exception:
+            pass
+
+    def _d_convert(d: ImageDraw.ImageDraw, h: int):
+        # Hoja azul-blanca con flecha verde de conversión
+        d.rounded_rectangle([8, 6, 44, 56], radius=6, fill="#e8f1fb", outline="#1a5fb4", width=5)
+        d.line([16, 20, 36, 20], fill="#1a5fb4", width=4)
+        d.line([16, 30, 30, 30], fill="#1a5fb4", width=4)
+        d.ellipse([30, 28, 58, 58], fill="#16a34a", outline="#ffffff", width=3)
+        d.line([38, 43, 50, 43], fill="#ffffff", width=5)
+        d.polygon([(46, 36), (54, 43), (46, 50)], fill="#ffffff")
+
+    def _d_translate(d: ImageDraw.ImageDraw, h: int):
+        # Globo terráqueo azul cielo con meridianos
+        d.ellipse([6, 6, 58, 58], fill="#0284c7", outline="#0369a1", width=4)
+        d.arc([18, 6, 46, 58], start=0, end=360, fill="#bae6fd", width=4)
+        d.line([8, 24, 56, 24], fill="#bae6fd", width=4)
+        d.line([8, 40, 56, 40], fill="#bae6fd", width=4)
+        d.line([32, 6, 32, 58], fill="#e0f2fe", width=3)
+
+    def _d_chat(d: ImageDraw.ImageDraw, h: int):
+        # Burbuja de diálogo verde esmeralda con líneas
+        d.rounded_rectangle([6, 8, 58, 48], radius=12, fill="#059669", outline="#047857", width=3)
+        d.polygon([(16, 46), (14, 58), (28, 46)], fill="#059669")
+        d.line([16, 22, 48, 22], fill="#ffffff", width=4)
+        d.line([16, 33, 40, 33], fill="#d1fae5", width=4)
+
+    def _d_ai(d: ImageDraw.ImageDraw, h: int):
+        # Chip / nodo neuronal violeta con núcleo dorado
+        for pos in (18, 32, 46):
+            d.line([pos, 4, pos, 60], fill="#7c3aed", width=4)
+            d.line([4, pos, 60, pos], fill="#7c3aed", width=4)
+        d.rounded_rectangle([12, 12, 52, 52], radius=10, fill="#6d28d9", outline="#a78bfa", width=4)
+        d.polygon([(32, 18), (37, 27), (46, 32), (37, 37), (32, 46), (27, 37), (18, 32), (27, 27)], fill="#fbbf24")
+
+    def _d_anonymize(d: ImageDraw.ImageDraw, h: int):
+        # Escudo dorado RGPD con cerradura oscura
+        d.polygon([(32, 4), (56, 14), (52, 42), (32, 60), (12, 42), (8, 14)], fill="#f59e0b", outline="#b45309", width=4)
+        d.ellipse([24, 20, 40, 34], fill="#451a03")
+        d.polygon([(27, 30), (37, 30), (39, 44), (25, 44)], fill="#451a03")
+
+    def _d_pdf_tools(d: ImageDraw.ImageDraw, h: int):
+        # Documento rojo PDF + insignia de herramienta metálica
+        d.rounded_rectangle([8, 6, 46, 56], radius=6, fill="#dc2626", outline="#991b1b", width=4)
+        d.line([16, 20, 38, 20], fill="#ffffff", width=4)
+        d.line([16, 30, 32, 30], fill="#fecaca", width=4)
+        d.ellipse([32, 32, 58, 58], fill="#334155", outline="#ffffff", width=3)
+        d.line([39, 39, 51, 51], fill="#e2e8f0", width=5)
+
+    def _d_github(d: ImageDraw.ImageDraw, h: int):
+        fill_c = "#e2e8f0" if dark_mode else "#24292f"
+        line_c = "#1e1f22" if dark_mode else "#ffffff"
+        d.ellipse([6, 6, 58, 58], fill=fill_c)
+        d.line([24, 18, 24, 46], fill=line_c, width=5)
+        d.line([24, 34, 40, 22], fill=line_c, width=5)
+        d.ellipse([18, 14, 30, 26], fill=line_c)
+        d.ellipse([18, 40, 30, 52], fill=line_c)
+        d.ellipse([34, 16, 46, 28], fill=line_c)
+
+    def _d_legal(d: ImageDraw.ImageDraw, h: int):
+        # Balanza institucional azul/oro
+        d.line([32, 10, 32, 54], fill="#1d4ed8", width=5)
+        d.line([16, 54, 48, 54], fill="#1d4ed8", width=5)
+        d.line([10, 18, 54, 18], fill="#f59e0b", width=5)
+        d.polygon([(6, 36), (22, 36), (14, 20)], fill="#f59e0b")
+        d.polygon([(42, 36), (58, 36), (50, 20)], fill="#f59e0b")
+
+    def _d_update(d: ImageDraw.ImageDraw, h: int):
+        d.arc([8, 8, 56, 56], start=35, end=215, fill="#0284c7", width=6)
+        d.arc([8, 8, 56, 56], start=215, end=35, fill="#0ea5e9", width=6)
+        d.polygon([(48, 12), (58, 26), (40, 26)], fill="#0284c7")
+        d.polygon([(16, 52), (6, 38), (24, 38)], fill="#0ea5e9")
+
+    def _d_reinstall(d: ImageDraw.ImageDraw, h: int):
+        d.arc([10, 10, 54, 54], start=0, end=300, fill="#16a34a", width=6)
+        d.polygon([(44, 18), (58, 20), (50, 6)], fill="#16a34a")
+        d.ellipse([24, 24, 40, 40], fill="#22c55e")
+
+    def _d_cache(d: ImageDraw.ImageDraw, h: int):
+        # Destello/limpieza ámbar-naranja
+        d.polygon([(32, 6), (39, 25), (58, 32), (39, 39), (32, 58), (25, 39), (6, 32), (25, 25)], fill="#ea580c")
+        d.ellipse([26, 26, 38, 38], fill="#fef08a")
+
+    def _d_clear_logs(d: ImageDraw.ImageDraw, h: int):
+        # Papelera roja
+        d.line([14, 14, 50, 14], fill="#dc2626", width=6)
+        d.line([24, 8, 40, 8], fill="#dc2626", width=5)
+        d.rounded_rectangle([16, 18, 48, 56], radius=6, fill="#ef4444", outline="#991b1b", width=4)
+        d.line([26, 26, 26, 48], fill="#ffffff", width=4)
+        d.line([38, 26, 38, 48], fill="#ffffff", width=4)
+
+    def _d_view_logs(d: ImageDraw.ImageDraw, h: int):
+        # Portapapeles gris/azul con líneas
+        d.rounded_rectangle([12, 12, 52, 56], radius=6, fill="#f8fafc", outline="#475569", width=5)
+        d.rounded_rectangle([22, 6, 42, 16], radius=3, fill="#0284c7")
+        d.line([20, 26, 44, 26], fill="#334155", width=4)
+        d.line([20, 36, 44, 36], fill="#334155", width=4)
+        d.line([20, 46, 36, 46], fill="#64748b", width=4)
+
+    specs = {
+        "tab_convert": _d_convert,
+        "tab_translate": _d_translate,
+        "tab_chat": _d_chat,
+        "tab_ai": _d_ai,
+        "tab_anonymize": _d_anonymize,
+        "tab_pdf_tools": _d_pdf_tools,
+        "github": _d_github,
+        "legal": _d_legal,
+        "update": _d_update,
+        "reinstall": _d_reinstall,
+        "cache": _d_cache,
+        "clear_logs": _d_clear_logs,
+        "view_logs": _d_view_logs,
+    }
+    for key, fn in specs.items():
+        icons[key] = _render_icon_photo(fn, master=master, size=16)
+    return icons
 
 
 class OpenOCReaderGUI:
@@ -86,10 +251,10 @@ class OpenOCReaderGUI:
         self.root.title("Open OCReader - Digitalización e IA Documental 100% Local")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        win_w = min(1080, max(840, sw - 60))
-        win_h = min(760, max(600, sh - 90))
+        win_w = min(1240, max(960, sw - 50))
+        win_h = min(860, max(680, sh - 70))
         self.root.geometry(f"{win_w}x{win_h}")
-        self.root.minsize(820, 560)
+        self.root.minsize(920, 640)
         self._window_icon_ref = None
         self._apply_window_icon()
 
@@ -174,6 +339,7 @@ class OpenOCReaderGUI:
         self.cached_doc_tree = None
         self.cached_doc_key = None  # (file_path, handwriting_flag, force_ocr_flag)
 
+        self._ui_icons = _build_supersampled_ui_icons(self.root, self.is_dark_mode)
         self._build_ui()
         self._setup_drag_and_drop()
         self._setup_clipboard_paste()
@@ -233,12 +399,12 @@ class OpenOCReaderGUI:
             self.style.configure("TLabel", background=p["bg"], foreground=p["fg"])
             self.style.configure("TCheckbutton", background=p["bg"], foreground=p["fg"])
             self.style.configure("TRadiobutton", background=p["bg"], foreground=p["fg"])
-            self.style.configure("TButton", background="#35383e", foreground=p["fg"], padding=4)
+            self.style.configure("TButton", background="#35383e", foreground=p["fg"], padding=(5, 2))
             self.style.map("TButton", background=[("active", "#464b54")])
             self.style.configure("TEntry", fieldbackground=p["input_bg"], foreground=p["input_fg"])
             self.style.configure("TCombobox", fieldbackground=p["input_bg"], foreground=p["input_fg"])
             self.style.configure("TNotebook", background=p["bg"])
-            self.style.configure("TNotebook.Tab", background="#2b2d30", foreground=p["fg"], padding=(10, 5))
+            self.style.configure("TNotebook.Tab", background="#2b2d30", foreground=p["fg"], padding=(6, 3))
             self.style.map("TNotebook.Tab", background=[("selected", "#3c4048")], foreground=[("selected", p["accent"])])
         else:
             self.palette = {
@@ -259,6 +425,8 @@ class OpenOCReaderGUI:
                 pass
             self.style.configure(".", font=("Segoe UI", 10))
             self.style.configure("TLabelframe.Label", font=("Segoe UI", 10, "bold"))
+            self.style.configure("TButton", padding=(5, 2))
+            self.style.configure("TNotebook.Tab", padding=(6, 3))
 
     def _register_zoomable_text(self, text_widget: tk.Text, family: str = "Segoe UI"):
         """Registra un área de texto para permitir zoom con botones A-/A+ y Ctrl + Rueda del ratón."""
@@ -297,18 +465,7 @@ class OpenOCReaderGUI:
 
     def _apply_window_icon(self):
         """Aplica el icono de Open OCReader (.ico en Windows, .png en Linux/macOS)."""
-        candidates = []
-        if getattr(sys, "frozen", False):
-            exe_dir = Path(sys.executable).resolve().parent
-            candidates.append(exe_dir / "ico")
-            candidates.append(exe_dir / "_internal" / "ico")
-            meipass = getattr(sys, "_MEIPASS", None)
-            if meipass:
-                candidates.append(Path(meipass) / "ico")
-        else:
-            candidates.append(Path(__file__).resolve().parent.parent.parent / "ico")
-
-        ico_dir = next((d for d in candidates if d.exists()), None)
+        ico_dir = _resolve_ico_dir()
         if not ico_dir:
             return
 
@@ -324,23 +481,45 @@ class OpenOCReaderGUI:
         except Exception as e:
             logger.warning(f"No se pudo cargar el icono de ventana: {e}")
 
+    def _icon_kwargs(self, key: str) -> dict:
+        ic = self._ui_icons.get(key)
+        return {"image": ic, "compound": tk.LEFT} if ic is not None else {}
+
     def _build_ui(self):
-        main_frame = ttk.Frame(self.root, padding="14 12 14 12")
+        main_frame = ttk.Frame(self.root, padding="10 8 10 8")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Cabecera común
+        # Cabecera común: logo + título + subtítulo a la izquierda; barra en 2 filas a la derecha (sin recortes HiDPI)
         header_frame = ttk.Frame(main_frame)
-        header_frame.pack(fill=tk.X, pady=(0, 8))
+        header_frame.pack(fill=tk.X, pady=(0, 6))
 
-        title_row = ttk.Frame(header_frame)
-        title_row.pack(fill=tk.X)
-        ttk.Label(title_row, text="Open OCReader 📄🔍🧠", font=("Segoe UI", 16, "bold")).pack(side=tk.LEFT)
+        brand_col = ttk.Frame(header_frame)
+        brand_col.pack(side=tk.LEFT, fill=tk.Y)
 
-        tools_row = ttk.Frame(title_row)
-        tools_row.pack(side=tk.RIGHT)
+        brand_top = ttk.Frame(brand_col)
+        brand_top.pack(anchor="w")
+        logo_ic = self._ui_icons.get("logo")
+        if logo_ic is not None:
+            ttk.Label(brand_top, image=logo_ic).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(brand_top, text="Open OCReader", font=("Segoe UI", 16, "bold")).pack(side=tk.LEFT)
+
+        self.subtitle_lbl = ttk.Label(
+            brand_col,
+            text=tr(self.ui_lang, "subtitle"),
+            font=("Segoe UI", 8),
+            foreground=self.palette["muted"],
+            wraplength=560,
+        )
+        self.subtitle_lbl.pack(anchor="w", pady=(2, 0))
+
+        tools_col = ttk.Frame(header_frame)
+        tools_col.pack(side=tk.RIGHT, anchor="ne")
+
+        tools_row1 = ttk.Frame(tools_col)
+        tools_row1.pack(anchor="e", pady=(0, 3))
 
         self.lang_combo = ttk.Combobox(
-            tools_row,
+            tools_row1,
             textvariable=self.ui_lang_var,
             values=[name for _code, name in SUPPORTED_UI_LANGUAGES],
             state="readonly",
@@ -350,42 +529,69 @@ class OpenOCReaderGUI:
         self.lang_combo.bind("<<ComboboxSelected>>", self._on_ui_language_changed)
 
         self.btn_github = ttk.Button(
-            tools_row,
-            text=tr(self.ui_lang, "btn_github"),
+            tools_row1,
+            text=_strip_leading_emoji(tr(self.ui_lang, "btn_github")),
             command=lambda: webbrowser.open(GITHUB_REPO_URL),
+            **self._icon_kwargs("github"),
         )
         self.btn_github.pack(side=tk.LEFT, padx=2)
-        ttk.Button(tools_row, text="A-", width=3, command=lambda: self._adjust_text_zoom(-1)).pack(side=tk.LEFT, padx=1)
-        ttk.Button(tools_row, text="A+", width=3, command=lambda: self._adjust_text_zoom(1)).pack(side=tk.LEFT, padx=(1, 3))
-        self.btn_legal = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_legal"), command=self._show_legal_compliance)
+        ttk.Button(tools_row1, text="A-", width=3, command=lambda: self._adjust_text_zoom(-1)).pack(side=tk.LEFT, padx=1)
+        ttk.Button(tools_row1, text="A+", width=3, command=lambda: self._adjust_text_zoom(1)).pack(side=tk.LEFT, padx=(1, 3))
+        self.btn_legal = ttk.Button(
+            tools_row1,
+            text=_strip_leading_emoji(tr(self.ui_lang, "btn_legal")),
+            command=self._show_legal_compliance,
+            **self._icon_kwargs("legal"),
+        )
         self.btn_legal.pack(side=tk.LEFT, padx=2)
-        self.btn_update = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_update"), command=self._check_updates_gui)
+
+        tools_row2 = ttk.Frame(tools_col)
+        tools_row2.pack(anchor="e")
+
+        self.btn_update = ttk.Button(
+            tools_row2,
+            text=_strip_leading_emoji(tr(self.ui_lang, "btn_update")),
+            command=self._check_updates_gui,
+            **self._icon_kwargs("update"),
+        )
         self.btn_update.pack(side=tk.LEFT, padx=2)
-        self.btn_reinstall = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_reinstall"), command=self._open_clean_reinstall_dialog)
+        self.btn_reinstall = ttk.Button(
+            tools_row2,
+            text=_strip_leading_emoji(tr(self.ui_lang, "btn_reinstall")),
+            command=self._open_clean_reinstall_dialog,
+            **self._icon_kwargs("reinstall"),
+        )
         self.btn_reinstall.pack(side=tk.LEFT, padx=2)
-        self.btn_cache = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_cache"), command=self._clear_cache_gui)
+        self.btn_cache = ttk.Button(
+            tools_row2,
+            text=_strip_leading_emoji(tr(self.ui_lang, "btn_cache")),
+            command=self._clear_cache_gui,
+            **self._icon_kwargs("cache"),
+        )
         self.btn_cache.pack(side=tk.LEFT, padx=2)
-        self.btn_clear_logs = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_clear_logs"), command=self._clear_logs_gui)
+        self.btn_clear_logs = ttk.Button(
+            tools_row2,
+            text=_strip_leading_emoji(tr(self.ui_lang, "btn_clear_logs")),
+            command=self._clear_logs_gui,
+            **self._icon_kwargs("clear_logs"),
+        )
         self.btn_clear_logs.pack(side=tk.LEFT, padx=2)
-        self.btn_view_logs = ttk.Button(tools_row, text=tr(self.ui_lang, "btn_view_logs"), command=self._open_logs)
+        self.btn_view_logs = ttk.Button(
+            tools_row2,
+            text=_strip_leading_emoji(tr(self.ui_lang, "btn_view_logs")),
+            command=self._open_logs,
+            **self._icon_kwargs("view_logs"),
+        )
         self.btn_view_logs.pack(side=tk.LEFT, padx=(2, 0))
 
-        self.subtitle_lbl = ttk.Label(
-            header_frame,
-            text=tr(self.ui_lang, "subtitle"),
-            font=("Segoe UI", 9),
-            foreground="#555555",
-        )
-        self.subtitle_lbl.pack(anchor="w")
-
         # Selector de fichero común en la parte superior
-        self.drop_frame = ttk.LabelFrame(main_frame, text=tr(self.ui_lang, "input_group"), padding="8")
-        self.drop_frame.pack(fill=tk.X, pady=(0, 10))
+        self.drop_frame = ttk.LabelFrame(main_frame, text=tr(self.ui_lang, "input_group"), padding="6")
+        self.drop_frame.pack(fill=tk.X, pady=(0, 6))
 
         self.drop_canvas = tk.Canvas(
             self.drop_frame,
             bg=self.palette["drop_bg"],
-            height=42,
+            height=30,
             highlightthickness=1,
             highlightbackground=self.palette["drop_border"],
             relief="flat",
@@ -393,9 +599,9 @@ class OpenOCReaderGUI:
         self.drop_canvas.pack(fill=tk.X, pady=(0, 4))
 
         self.drop_text_id = self.drop_canvas.create_text(
-            350, 21,
+            350, 15,
             text=tr(self.ui_lang, "drop_prompt"),
-            font=("Segoe UI", 10, "italic"),
+            font=("Segoe UI", 9, "italic"),
             fill=self.palette["accent"],
             justify="center",
         )
@@ -424,7 +630,7 @@ class OpenOCReaderGUI:
                     font=("Segoe UI", 8, "bold"),
                     foreground="#8a4b00",
                     wraplength=880,
-                ).pack(anchor="w", pady=(0, 6))
+                ).pack(anchor="w", pady=(0, 4))
         except Exception:
             pass
 
@@ -433,21 +639,45 @@ class OpenOCReaderGUI:
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
-        self.tab_convert = ttk.Frame(self.notebook, padding="10")
-        self.tab_translate = ttk.Frame(self.notebook, padding="10")
-        self.tab_chat = ttk.Frame(self.notebook, padding="10")
-        self.tab_ai = ttk.Frame(self.notebook, padding="10")
-        self.tab_anonymize = ttk.Frame(self.notebook, padding="10")
+        self.tab_convert = ttk.Frame(self.notebook, padding="8")
+        self.tab_translate = ttk.Frame(self.notebook, padding="8")
+        self.tab_chat = ttk.Frame(self.notebook, padding="8")
+        self.tab_ai = ttk.Frame(self.notebook, padding="8")
+        self.tab_anonymize = ttk.Frame(self.notebook, padding="8")
         self.pdf_tools_disabled = os.environ.get("OPEN_OCREADER_DISABLE_PDF_TOOLS", "").strip().lower() in {"1", "true", "yes"}
-        self.tab_pdf_tools = ttk.Frame(self.notebook, padding="10") if not self.pdf_tools_disabled else None
+        self.tab_pdf_tools = ttk.Frame(self.notebook, padding="8") if not self.pdf_tools_disabled else None
 
-        self.notebook.add(self.tab_convert, text="  📄 Conversión  ")
-        self.notebook.add(self.tab_translate, text=tr(self.ui_lang, "tab_translate"))
-        self.notebook.add(self.tab_chat, text="  💬 Chat con Archivos  ")
-        self.notebook.add(self.tab_ai, text="  🧠 IA y Manuscritos  ")
-        self.notebook.add(self.tab_anonymize, text="  🔒 Anonimizar (RGPD)  ")
+        self.notebook.add(
+            self.tab_convert,
+            text=f"{_strip_leading_emoji(tr(self.ui_lang, 'tab_convert'))} ",
+            **self._icon_kwargs("tab_convert"),
+        )
+        self.notebook.add(
+            self.tab_translate,
+            text=f"{_strip_leading_emoji(tr(self.ui_lang, 'tab_translate'))} ",
+            **self._icon_kwargs("tab_translate"),
+        )
+        self.notebook.add(
+            self.tab_chat,
+            text=" Chat Docs ",
+            **self._icon_kwargs("tab_chat"),
+        )
+        self.notebook.add(
+            self.tab_ai,
+            text=f"{_strip_leading_emoji(tr(self.ui_lang, 'tab_ai'))} ",
+            **self._icon_kwargs("tab_ai"),
+        )
+        self.notebook.add(
+            self.tab_anonymize,
+            text=" Anonimizar (RGPD) ",
+            **self._icon_kwargs("tab_anonymize"),
+        )
         if self.tab_pdf_tools is not None:
-            self.notebook.add(self.tab_pdf_tools, text=tr(self.ui_lang, "tab_pdf_tools"))
+            self.notebook.add(
+                self.tab_pdf_tools,
+                text=f"{_strip_leading_emoji(tr(self.ui_lang, 'tab_pdf_tools'))} ",
+                **self._icon_kwargs("tab_pdf_tools"),
+            )
 
         self._build_convert_tab()
         self._build_translate_tab()
@@ -481,8 +711,8 @@ class OpenOCReaderGUI:
 
     def _build_convert_tab(self):
         # Formato de salida limpio en 2 columnas sin saturación de texto
-        self.format_group = ttk.LabelFrame(self.tab_convert, text=tr(self.ui_lang, "format_group"), padding="8")
-        self.format_group.pack(fill=tk.X, pady=(0, 8))
+        self.format_group = ttk.LabelFrame(self.tab_convert, text=tr(self.ui_lang, "format_group"), padding="6")
+        self.format_group.pack(fill=tk.X, pady=(0, 5))
 
         grid_frame = ttk.Frame(self.format_group)
         grid_frame.pack(fill=tk.X)
@@ -501,7 +731,7 @@ class OpenOCReaderGUI:
                 variable=self.format_var,
                 command=self._on_format_changed,
             )
-            rb.grid(row=row_i, column=col_i, sticky="w", padx=(4, 16), pady=2)
+            rb.grid(row=row_i, column=col_i, sticky="w", padx=(4, 14), pady=1)
             self.format_widgets[fmt_key] = (rb, None)
 
         # Banda descriptiva dinámica del formato seleccionado
@@ -510,11 +740,11 @@ class OpenOCReaderGUI:
             textvariable=self.format_desc_var,
             font=("Segoe UI", 8, "italic"),
             foreground="#1f4e79",
-        ).pack(anchor="w", padx=(4, 0), pady=(6, 0))
+        ).pack(anchor="w", padx=(4, 0), pady=(3, 0))
 
         # Opciones de OCR inteligente, compresión PDF y escala de grises
-        pdf_opts = ttk.LabelFrame(self.tab_convert, text=" Opciones de OCR y optimización PDF ", padding="8")
-        pdf_opts.pack(fill=tk.X, pady=(0, 8))
+        pdf_opts = ttk.LabelFrame(self.tab_convert, text=" Opciones de OCR y optimización PDF ", padding="6")
+        pdf_opts.pack(fill=tk.X, pady=(0, 5))
 
         opts_row1 = ttk.Frame(pdf_opts)
         opts_row1.pack(fill=tk.X)
@@ -532,26 +762,26 @@ class OpenOCReaderGUI:
         ).pack(side=tk.RIGHT)
 
         opts_row2 = ttk.Frame(pdf_opts)
-        opts_row2.pack(fill=tk.X, pady=(6, 0))
+        opts_row2.pack(fill=tk.X, pady=(4, 0))
 
-        ttk.Label(opts_row2, text="Compresión PDF / PDF-A:").pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(opts_row2, text="Compresión PDF / PDF-A:").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Combobox(
             opts_row2,
             textvariable=self.compression_var,
             values=[lbl for lbl, _code in self.COMPRESSION_LABELS],
             state="readonly",
-            width=28,
+            width=26,
         ).pack(side=tk.LEFT)
         ttk.Label(
             opts_row2,
-            text="  (Si el PDF ya es buscable, el OCR se omite automáticamente para mayor velocidad)",
+            text=" (PDF ya buscable: omite OCR automáticamente)",
             font=("Segoe UI", 8),
             foreground="#2e6b2e",
         ).pack(side=tk.LEFT, padx=(6, 0))
 
         # Destino
-        self.output_group = ttk.LabelFrame(self.tab_convert, text=tr(self.ui_lang, "output_group"), padding="8")
-        self.output_group.pack(fill=tk.X, pady=(0, 12))
+        self.output_group = ttk.LabelFrame(self.tab_convert, text=tr(self.ui_lang, "output_group"), padding="6")
+        self.output_group.pack(fill=tk.X, pady=(0, 6))
 
         output_entry_frame = ttk.Frame(self.output_group)
         output_entry_frame.pack(fill=tk.X)
@@ -568,21 +798,21 @@ class OpenOCReaderGUI:
             text=tr(self.ui_lang, "btn_convert"),
             command=self._start_conversion,
         )
-        self.btn_convert.pack(fill=tk.X, ipady=6, pady=(2, 6))
+        self.btn_convert.pack(fill=tk.X, ipady=4, pady=(2, 4))
 
         self.progress_bar = ttk.Progressbar(self.tab_convert, mode="indeterminate")
-        self.progress_bar.pack(fill=tk.X, pady=(0, 6))
+        self.progress_bar.pack(fill=tk.X, pady=(0, 4))
 
         ttk.Label(
             self.tab_convert,
             textvariable=self.status_var,
             font=("Segoe UI", 9),
             foreground="#222222",
-            wraplength=780,
+            wraplength=920,
         ).pack(anchor="w")
 
         post_frame = ttk.Frame(self.tab_convert)
-        post_frame.pack(fill=tk.X, pady=(10, 0))
+        post_frame.pack(fill=tk.X, pady=(6, 0))
 
         self.btn_open_file = ttk.Button(post_frame, text=tr(self.ui_lang, "btn_open_file"), command=self._open_file, state=tk.DISABLED)
         self.btn_open_file.pack(side=tk.LEFT, padx=(0, 8))
@@ -637,8 +867,8 @@ class OpenOCReaderGUI:
             return
 
         # 1. Idiomas origen y destino
-        lang_grp = ttk.LabelFrame(self.tab_translate, text=" 🌐 Idiomas de traducción contextual ", padding="8")
-        lang_grp.pack(fill=tk.X, pady=(0, 8))
+        lang_grp = ttk.LabelFrame(self.tab_translate, text=" 🌐 Idiomas de traducción contextual ", padding="6")
+        lang_grp.pack(fill=tk.X, pady=(0, 5))
 
         lang_row = ttk.Frame(lang_grp)
         lang_row.pack(fill=tk.X)
@@ -648,18 +878,18 @@ class OpenOCReaderGUI:
             lang_row,
             textvariable=self.trans_source_lang_var,
             values=["Auto-detectar"] + TRANSLATION_TARGET_LANGUAGES,
-            width=18,
+            width=16,
         )
-        self.trans_src_combo.pack(side=tk.LEFT, padx=(0, 18))
+        self.trans_src_combo.pack(side=tk.LEFT, padx=(0, 14))
 
         ttk.Label(lang_row, text="Idioma destino:").pack(side=tk.LEFT, padx=(0, 6))
         self.trans_dst_combo = ttk.Combobox(
             lang_row,
             textvariable=self.trans_target_lang_var,
             values=TRANSLATION_TARGET_LANGUAGES,
-            width=18,
+            width=16,
         )
-        self.trans_dst_combo.pack(side=tk.LEFT, padx=(0, 12))
+        self.trans_dst_combo.pack(side=tk.LEFT, padx=(0, 10))
         self.trans_dst_combo.bind("<<ComboboxSelected>>", lambda e: self._update_default_translate_output())
 
         ttk.Label(
@@ -670,8 +900,8 @@ class OpenOCReaderGUI:
         ).pack(side=tk.RIGHT)
 
         # 2. Selector de formato traducido (10 formatos en 2 columnas)
-        fmt_grp = ttk.LabelFrame(self.tab_translate, text=" 📁 Formato del documento traducido ", padding="8")
-        fmt_grp.pack(fill=tk.X, pady=(0, 8))
+        fmt_grp = ttk.LabelFrame(self.tab_translate, text=" 📁 Formato del documento traducido ", padding="6")
+        fmt_grp.pack(fill=tk.X, pady=(0, 5))
 
         grid_f = ttk.Frame(fmt_grp)
         grid_f.pack(fill=tk.X)
@@ -688,18 +918,18 @@ class OpenOCReaderGUI:
                 value=fmt_key,
                 variable=self.trans_format_var,
                 command=self._on_trans_format_changed,
-            ).grid(row=row_i, column=col_i, sticky="w", padx=(4, 16), pady=2)
+            ).grid(row=row_i, column=col_i, sticky="w", padx=(4, 14), pady=1)
 
         ttk.Label(
             fmt_grp,
             textvariable=self.trans_format_desc_var,
             font=("Segoe UI", 8, "italic"),
             foreground="#1f4e79",
-        ).pack(anchor="w", padx=(4, 0), pady=(4, 0))
+        ).pack(anchor="w", padx=(4, 0), pady=(3, 0))
 
         # 3. Opciones de maquetación, color, imagen y OCR
-        vis_grp = ttk.LabelFrame(self.tab_translate, text=" 🎨 Maquetación y optimización de color e imagen ", padding="8")
-        vis_grp.pack(fill=tk.X, pady=(0, 8))
+        vis_grp = ttk.LabelFrame(self.tab_translate, text=" 🎨 Maquetación y optimización de color e imagen ", padding="6")
+        vis_grp.pack(fill=tk.X, pady=(0, 5))
 
         r1 = ttk.Frame(vis_grp)
         r1.pack(fill=tk.X)
@@ -715,18 +945,18 @@ class OpenOCReaderGUI:
         ).pack(side=tk.RIGHT)
 
         r2 = ttk.Frame(vis_grp)
-        r2.pack(fill=tk.X, pady=(4, 0))
+        r2.pack(fill=tk.X, pady=(3, 0))
         ttk.Checkbutton(
             r2,
             text="Forzar OCR (re-escanear)",
             variable=self.trans_force_ocr_var,
-        ).pack(side=tk.LEFT, padx=(0, 14))
+        ).pack(side=tk.LEFT, padx=(0, 12))
         ttk.Checkbutton(
             r2,
             text="Modo letra manuscrita (Visión)",
             variable=self.trans_handwriting_var,
-        ).pack(side=tk.LEFT, padx=(0, 14))
-        ttk.Label(r2, text="Compresión:").pack(side=tk.LEFT, padx=(8, 4))
+        ).pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(r2, text="Compresión:").pack(side=tk.LEFT, padx=(6, 4))
         ttk.Combobox(
             r2,
             textvariable=self.trans_compression_var,
@@ -736,8 +966,8 @@ class OpenOCReaderGUI:
         ).pack(side=tk.LEFT)
 
         # 4. Fichero de salida traducido
-        out_grp = ttk.LabelFrame(self.tab_translate, text=" 💾 Fichero traducido de salida ", padding="8")
-        out_grp.pack(fill=tk.X, pady=(0, 10))
+        out_grp = ttk.LabelFrame(self.tab_translate, text=" 💾 Fichero traducido de salida ", padding="6")
+        out_grp.pack(fill=tk.X, pady=(0, 6))
 
         out_row = ttk.Frame(out_grp)
         out_row.pack(fill=tk.X)
@@ -752,21 +982,21 @@ class OpenOCReaderGUI:
             text="🌐  Traducir y Generar Documento",
             command=self._start_document_translation,
         )
-        self.btn_translate_doc.pack(fill=tk.X, ipady=6, pady=(2, 6))
+        self.btn_translate_doc.pack(fill=tk.X, ipady=4, pady=(2, 4))
 
         self.trans_progress = ttk.Progressbar(self.tab_translate, mode="indeterminate")
-        self.trans_progress.pack(fill=tk.X, pady=(0, 6))
+        self.trans_progress.pack(fill=tk.X, pady=(0, 4))
 
         ttk.Label(
             self.tab_translate,
             textvariable=self.trans_status_var,
             font=("Segoe UI", 9),
             foreground=self.palette["fg"],
-            wraplength=820,
+            wraplength=920,
         ).pack(anchor="w")
 
         post_trans = ttk.Frame(self.tab_translate)
-        post_trans.pack(fill=tk.X, pady=(8, 0))
+        post_trans.pack(fill=tk.X, pady=(5, 0))
         self.btn_open_trans_file = ttk.Button(
             post_trans, text="📄 Abrir documento traducido", command=self._open_translated_file, state=tk.DISABLED
         )
@@ -937,8 +1167,8 @@ class OpenOCReaderGUI:
 
         self.chat_docs_listbox = tk.Listbox(
             lb_container,
-            height=4,
-            font=("Segoe UI", 10),
+            height=3,
+            font=("Segoe UI", 9),
             selectmode=tk.EXTENDED,
             yscrollcommand=lb_scroll.set,
             bg=self.palette["input_bg"],
@@ -1459,40 +1689,9 @@ class OpenOCReaderGUI:
             wraplength=780,
         ).pack(anchor="w", pady=(0, 4))
 
-        # Área de texto resultado
-        text_frame = ttk.Frame(self.tab_ai)
-        text_frame.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar = ttk.Scrollbar(text_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.ai_output_text = tk.Text(
-            text_frame,
-            wrap=tk.WORD,
-            yscrollcommand=scrollbar.set,
-            padx=8,
-            pady=8,
-        )
-        self.ai_output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=self.ai_output_text.yview)
-        self._register_zoomable_text(self.ai_output_text, family="Consolas")
-
-        # Atajos de teclado explícitos y menú contextual (clic derecho) para copiar fácilmente
-        self.ai_output_text.bind("<Control-c>", self._copy_selection)
-        self.ai_output_text.bind("<Control-C>", self._copy_selection)
-        self.ai_output_text.bind("<Control-a>", self._select_all_output)
-        self.ai_output_text.bind("<Control-A>", self._select_all_output)
-        self.ai_output_text.bind("<Button-3>", self._show_text_context_menu)
-
-        self.text_context_menu = tk.Menu(self.root, tearoff=0)
-        self.text_context_menu.add_command(label="📋 Copiar selección", command=self._copy_selection)
-        self.text_context_menu.add_command(label="📋 Copiar todo", command=self._copy_ai_output)
-        self.text_context_menu.add_separator()
-        self.text_context_menu.add_command(label="Seleccionar todo (Ctrl+A)", command=self._select_all_output)
-
-        # Botones inferiores IA
+        # Botones inferiores IA (empaquetados antes del área expandible para que nunca desaparezcan)
         ai_bottom = ttk.Frame(self.tab_ai)
-        ai_bottom.pack(fill=tk.X, pady=(6, 0))
+        ai_bottom.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
 
         ttk.Button(ai_bottom, text="📋 Copiar texto", command=self._copy_ai_output).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(ai_bottom, text="💾 Guardar .txt", command=self._save_ai_output).pack(side=tk.LEFT, padx=(0, 12))
@@ -1510,6 +1709,38 @@ class OpenOCReaderGUI:
             text="📥 Exportar informe...",
             command=self._export_ai_output_with_refs,
         ).pack(side=tk.LEFT)
+
+        # Área de texto resultado
+        text_frame = ttk.Frame(self.tab_ai)
+        text_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.ai_output_text = tk.Text(
+            text_frame,
+            height=10,
+            wrap=tk.WORD,
+            yscrollcommand=scrollbar.set,
+            padx=8,
+            pady=6,
+        )
+        self.ai_output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.ai_output_text.yview)
+        self._register_zoomable_text(self.ai_output_text, family="Consolas")
+
+        # Atajos de teclado explícitos y menú contextual (clic derecho) para copiar fácilmente
+        self.ai_output_text.bind("<Control-c>", self._copy_selection)
+        self.ai_output_text.bind("<Control-C>", self._copy_selection)
+        self.ai_output_text.bind("<Control-a>", self._select_all_output)
+        self.ai_output_text.bind("<Control-A>", self._select_all_output)
+        self.ai_output_text.bind("<Button-3>", self._show_text_context_menu)
+
+        self.text_context_menu = tk.Menu(self.root, tearoff=0)
+        self.text_context_menu.add_command(label="📋 Copiar selección", command=self._copy_selection)
+        self.text_context_menu.add_command(label="📋 Copiar todo", command=self._copy_ai_output)
+        self.text_context_menu.add_separator()
+        self.text_context_menu.add_command(label="Seleccionar todo (Ctrl+A)", command=self._select_all_output)
 
     # ---------------- PESTAÑA 4: ANONIMIZADOR RGPD (100% PYTHON + IA OPCIONAL) ----------------
     def _build_anonymize_tab(self):
@@ -1874,20 +2105,21 @@ class OpenOCReaderGUI:
         lang = self.ui_lang
         self.root.title(tr(lang, "window_title"))
         self.subtitle_lbl.config(text=tr(lang, "subtitle"))
-        self.btn_legal.config(text=tr(lang, "btn_legal"))
-        self.btn_update.config(text=tr(lang, "btn_update"))
-        self.btn_reinstall.config(text=tr(lang, "btn_reinstall"))
-        self.btn_cache.config(text=tr(lang, "btn_cache"))
-        self.btn_clear_logs.config(text=tr(lang, "btn_clear_logs"))
-        self.btn_view_logs.config(text=tr(lang, "btn_view_logs"))
+        self.btn_github.config(text=_strip_leading_emoji(tr(lang, "btn_github")))
+        self.btn_legal.config(text=_strip_leading_emoji(tr(lang, "btn_legal")))
+        self.btn_update.config(text=_strip_leading_emoji(tr(lang, "btn_update")))
+        self.btn_reinstall.config(text=_strip_leading_emoji(tr(lang, "btn_reinstall")))
+        self.btn_cache.config(text=_strip_leading_emoji(tr(lang, "btn_cache")))
+        self.btn_clear_logs.config(text=_strip_leading_emoji(tr(lang, "btn_clear_logs")))
+        self.btn_view_logs.config(text=_strip_leading_emoji(tr(lang, "btn_view_logs")))
         self.drop_frame.config(text=tr(lang, "input_group"))
         self.btn_paste.config(text=tr(lang, "btn_paste"))
         self.btn_browse.config(text=tr(lang, "btn_browse"))
-        self.notebook.tab(self.tab_convert, text=tr(lang, "tab_convert"))
-        self.notebook.tab(self.tab_translate, text=tr(lang, "tab_translate"))
-        self.notebook.tab(self.tab_ai, text=tr(lang, "tab_ai"))
+        self.notebook.tab(self.tab_convert, text=f"{_strip_leading_emoji(tr(lang, 'tab_convert'))} ")
+        self.notebook.tab(self.tab_translate, text=f"{_strip_leading_emoji(tr(lang, 'tab_translate'))} ")
+        self.notebook.tab(self.tab_ai, text=f"{_strip_leading_emoji(tr(lang, 'tab_ai'))} ")
         if self.tab_pdf_tools is not None:
-            self.notebook.tab(self.tab_pdf_tools, text=tr(lang, "tab_pdf_tools"))
+            self.notebook.tab(self.tab_pdf_tools, text=f"{_strip_leading_emoji(tr(lang, 'tab_pdf_tools'))} ")
         self.format_group.config(text=tr(lang, "format_group"))
         for fmt_key, (rb, desc_lbl) in self.format_widgets.items():
             lbl_txt, desc_txt = tr(lang, f"fmt_{fmt_key}")

@@ -24,6 +24,9 @@ Todos los cambios notables de este proyecto se documentan en este fichero.
 * **Actualización de Dependencias y Agradecimiento a GitHub Dependabot (`PR #1`)**:
   * Integración y fusión limpia del Pull Request #1 de `dependabot[bot]` (`pillow>=13.0.0`, `pypdf>=6.21.4`, `python-multipart>=0.0.31`) manteniendo actualizadas las librerías en `requirements.txt` y `requirements.lock.txt`.
   * Agradecimiento formal a **GitHub Dependabot** en `README.md` y `SECURITY.md` por su auditoría continua de la cadena de suministro.
+* **Iconos Vectoriales en Color Anti-Aliased, Logotipo de Cabecera y Capturas v0.3.1**:
+  * Sustitución de los glifos monocromos de Tkinter/GDI por iconos vectoriales a todo color supermuestreados 4x (`LANCZOS`) en las 6 pestañas y en todos los botones superiores de acciones, junto al logotipo oficial en cabecera (`ico/Open_OCReader.png`).
+  * Actualización de las capturas de pantalla reales en `docs/screenshots/` (`gui_conversion.png`, `gui_translate.png`, `gui_chat.png`, `gui_ia.png`) mostradas en la portada de `README.md`.
 
 ### Seguridad y Auditoría Completa
 * **Mitigación contra Inyección Indirecta de Prompts (Indirect Prompt Injection)**:
