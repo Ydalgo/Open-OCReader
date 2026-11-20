@@ -224,6 +224,50 @@ class FlowLayout(QLayout):
         return total_h + top + bottom
 
 
+class _AdaptiveColumns(QWidget):
+    """Contenedor de dos columnas que se apila en una sola cuando falta ancho.
+
+    En pantallas anchas (p. ej. pantalla completa) aprovecha el fondo lateral
+    colocando los bloques en paralelo y evita barras de desplazamiento verticales.
+    """
+
+    def __init__(self, left_widgets: List[QWidget], right_widgets: List[QWidget]):
+        super().__init__()
+        self._wide: Optional[bool] = None
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(10)
+        self._grid.setVerticalSpacing(5)
+        self._col_l = QWidget()
+        self._col_r = QWidget()
+        for col, widgets in ((self._col_l, left_widgets), (self._col_r, right_widgets)):
+            vl = QVBoxLayout(col)
+            vl.setContentsMargins(0, 0, 0, 0)
+            vl.setSpacing(5)
+            for wd in widgets:
+                vl.addWidget(wd)
+            vl.addStretch(1)
+        self.set_wide(False)
+
+    def set_wide(self, wide: bool):
+        if wide == self._wide:
+            return
+        self._wide = wide
+        self._grid.removeWidget(self._col_l)
+        self._grid.removeWidget(self._col_r)
+        if wide:
+            self._grid.addWidget(self._col_l, 0, 0)
+            self._grid.addWidget(self._col_r, 0, 1)
+            self._grid.setColumnStretch(0, 1)
+            self._grid.setColumnStretch(1, 1)
+        else:
+            self._grid.addWidget(self._col_l, 0, 0)
+            self._grid.addWidget(self._col_r, 1, 0)
+            self._grid.setColumnStretch(0, 1)
+            self._grid.setColumnStretch(1, 0)
+        self._grid.invalidate()
+
+
 class _DropZoneFrame(QFrame):
     """Zona interactiva de arrastrar/soltar y apertura rápida de ficheros."""
 
@@ -1186,7 +1230,6 @@ class OpenOCReaderQtWindow(QMainWindow):
         self.conv_fmt_group, self.conv_fmt_radios, self.conv_fmt_desc_lbl = self._build_radio_format_grid(
             fmt_lay, "pdf", self._on_conv_format_changed
         )
-        lay.addWidget(self.conv_fmt_grp_box)
 
         opts_box = QGroupBox(" Opciones de OCR y optimización PDF ")
         opts_lay = QVBoxLayout(opts_box)
@@ -1212,7 +1255,6 @@ class OpenOCReaderQtWindow(QMainWindow):
         hint.setProperty("role", "ok")
         r2.addWidget(hint)
         opts_lay.addWidget(r2_wrap)
-        lay.addWidget(opts_box)
 
         self.conv_out_box = QGroupBox(tr(self.ui_lang, "output_group"))
         out_lay = QHBoxLayout(self.conv_out_box)
@@ -1221,7 +1263,7 @@ class OpenOCReaderQtWindow(QMainWindow):
         self.btn_save_as = QPushButton(tr(self.ui_lang, "btn_save_as"))
         self.btn_save_as.clicked.connect(self._browse_conv_output)
         out_lay.addWidget(self.btn_save_as)
-        lay.addWidget(self.conv_out_box)
+        self._add_columns(lay, [self.conv_fmt_grp_box], [opts_box, self.conv_out_box])
 
         self.btn_convert = QPushButton(tr(self.ui_lang, "btn_convert"))
         self.btn_convert.setObjectName("primaryBtn")
@@ -1306,7 +1348,6 @@ class OpenOCReaderQtWindow(QMainWindow):
         t_hint = QLabel("Traducción contextual con Qwen3-VL y Prompt Madre")
         t_hint.setProperty("role", "ok")
         ll.addWidget(t_hint)
-        lay.addWidget(lang_box)
 
         fmt_box = QGroupBox(" 📁 Formato del documento traducido ")
         fmt_lay = QVBoxLayout(fmt_box)
@@ -1315,7 +1356,6 @@ class OpenOCReaderQtWindow(QMainWindow):
         self.trans_fmt_group, self.trans_fmt_radios, self.trans_fmt_desc_lbl = self._build_radio_format_grid(
             fmt_lay, "docx", self._on_trans_format_changed
         )
-        lay.addWidget(fmt_box)
 
         vis_box = QGroupBox(" 🎨 Maquetación y optimización de color e imagen ")
         vis_lay = QVBoxLayout(vis_box)
@@ -1343,7 +1383,6 @@ class OpenOCReaderQtWindow(QMainWindow):
             self.trans_comp_combo.addItem(lbl)
         vr2.addWidget(self.trans_comp_combo)
         vis_lay.addWidget(vr2_w)
-        lay.addWidget(vis_box)
 
         out_box = QGroupBox(" 💾 Fichero traducido de salida ")
         ol = QHBoxLayout(out_box)
@@ -1352,7 +1391,7 @@ class OpenOCReaderQtWindow(QMainWindow):
         btn_t_save = QPushButton("Guardar como...")
         btn_t_save.clicked.connect(self._browse_trans_output)
         ol.addWidget(btn_t_save)
-        lay.addWidget(out_box)
+        self._add_columns(lay, [lang_box, fmt_box], [vis_box, out_box])
 
         self.btn_translate_doc = QPushButton("🌐  Traducir y Generar Documento")
         self.btn_translate_doc.setObjectName("primaryBtn")
@@ -1437,12 +1476,8 @@ class OpenOCReaderQtWindow(QMainWindow):
         btn_clr = QPushButton("🧹 Nueva sesión")
         btn_clr.clicked.connect(lambda: self._chat_clear(confirm=True))
 
-        btn_grid.addWidget(self.btn_chat_add, 0, 0)
-        btn_grid.addWidget(btn_chat_top, 0, 1)
-        btn_grid.addWidget(btn_save_p, 1, 0)
-        btn_grid.addWidget(btn_load_p, 1, 1)
-        btn_grid.addWidget(btn_rem, 2, 0)
-        btn_grid.addWidget(btn_clr, 2, 1)
+        self._chat_btn_grid = (btn_grid, [self.btn_chat_add, btn_chat_top, btn_save_p, btn_load_p, btn_rem, btn_clr])
+        self._reflow_chat_buttons()
         top_row.addLayout(btn_grid)
         dl.addLayout(top_row)
 
@@ -1465,7 +1500,7 @@ class OpenOCReaderQtWindow(QMainWindow):
 
         self.chat_history_edit = QTextEdit()
         self.chat_history_edit.setReadOnly(True)
-        self.chat_history_edit.setMinimumHeight(96)
+        self.chat_history_edit.setMinimumHeight(60)
         self.chat_history_edit.setAccessibleName("Historial de conversación multi-documento")
         lay.addWidget(self.chat_history_edit, 1)
 
@@ -1726,7 +1761,6 @@ class OpenOCReaderQtWindow(QMainWindow):
         btn_unlock.clicked.connect(lambda: self._run_pdf_tool("unlock"))
         ul.addWidget(btn_unlock)
         self.pdf_tool_buttons.append(btn_unlock)
-        lay.addWidget(u_box)
 
         s_box = QGroupBox(" ✍️ Borrar Firmas Digitales y Sellos de Formulario ")
         sl = FlowLayout(s_box, margin=8, h_spacing=10, v_spacing=4)
@@ -1738,7 +1772,6 @@ class OpenOCReaderQtWindow(QMainWindow):
         btn_sig.clicked.connect(lambda: self._run_pdf_tool("signatures"))
         sl.addWidget(btn_sig)
         self.pdf_tool_buttons.append(btn_sig)
-        lay.addWidget(s_box)
 
         w_box = QGroupBox(" 🧽 Limpiar Marcas de Agua (Vectoriales, Capas OCG y Escaneos) ")
         wl = QVBoxLayout(w_box)
@@ -1764,7 +1797,6 @@ class OpenOCReaderQtWindow(QMainWindow):
         wr2.addWidget(btn_wm)
         wl.addWidget(wr2_w)
         self.pdf_tool_buttons.append(btn_wm)
-        lay.addWidget(w_box)
 
         o_box = QGroupBox(" 🗜️ Comprimir PDF, Escala de Grises y PDF/A-2b ")
         ol = FlowLayout(o_box, margin=8, h_spacing=8, v_spacing=4)
@@ -1783,7 +1815,7 @@ class OpenOCReaderQtWindow(QMainWindow):
         ol.addWidget(self.pdf_opt_pdfa_chk)
         ol.addWidget(btn_opt)
         self.pdf_tool_buttons.append(btn_opt)
-        lay.addWidget(o_box)
+        self._add_columns(lay, [u_box, s_box], [w_box, o_box])
 
         self.pdf_tools_progress = QProgressBar()
         self.pdf_tools_progress.setRange(0, 100)
@@ -1818,9 +1850,35 @@ class OpenOCReaderQtWindow(QMainWindow):
         super().resizeEvent(event)
         self._relayout_responsive()
 
+    def _is_wide_layout(self) -> bool:
+        """True si hay ancho suficiente para colocar los bloques en dos columnas."""
+        needed = int(1100 * (self.a11y.ui_font_size / 10.0))
+        return self.width() >= needed and self.a11y.ui_font_size < 15
+
+    def _add_columns(self, lay: QVBoxLayout, left: List[QWidget], right: List[QWidget]):
+        cols = _AdaptiveColumns(left, right)
+        if not hasattr(self, "_adaptive_cols"):
+            self._adaptive_cols: List[_AdaptiveColumns] = []
+        self._adaptive_cols.append(cols)
+        lay.addWidget(cols)
+
+    def _reflow_chat_buttons(self):
+        grid, btns = getattr(self, "_chat_btn_grid", (None, []))
+        if grid is None:
+            return
+        cols = 3 if getattr(self, "_wide_now", False) else 2
+        for b in btns:
+            grid.removeWidget(b)
+        for i, b in enumerate(btns):
+            grid.addWidget(b, i // cols, i % cols)
+
     def _reflow_radio_grid(self, grid: QGridLayout, radios: List[QRadioButton]):
-        avail_w = max(480, self.width() - 80)
-        cols = 2 if (avail_w >= 680 and self.a11y.ui_font_size < 15) else 1
+        if getattr(self, "_wide_now", False):
+            avail_w = max(300, self.width() // 2 - 80)
+            cols = 2 if (avail_w >= 440 and self.a11y.ui_font_size < 15) else 1
+        else:
+            avail_w = max(480, self.width() - 80)
+            cols = 2 if (avail_w >= 680 and self.a11y.ui_font_size < 15) else 1
         for idx, rb in enumerate(radios):
             grid.removeWidget(rb)
         for idx, rb in enumerate(radios):
@@ -1865,6 +1923,10 @@ class OpenOCReaderQtWindow(QMainWindow):
                     if idx >= 0:
                         self.tabs.setTabText(idx, strip_leading_emoji(tr(self.ui_lang, key)).strip())
 
+        self._wide_now = self._is_wide_layout()
+        for ac in getattr(self, "_adaptive_cols", []):
+            ac.set_wide(self._wide_now)
+        self._reflow_chat_buttons()
         for grid, rbs in self._radio_grids:
             self._reflow_radio_grid(grid, rbs)
         for fl in self._flow_layouts:
