@@ -16,7 +16,11 @@ Todos los cambios notables de este proyecto se documentan en este fichero.
   * Se aclara formalmente que Open OCReader ejecuta modelos abiertos oficiales (`Qwen3-VL` y `BGE-M3`) **sin modificar, alterar ni entrenar sus pesos numéricos originales**, y que el autor no asume responsabilidad alguna por respuestas groseras, imprecisas o alucinadas que el modelo de terceros pudiera generar.
 * **Prompt Madre Institucional y Rieles de Comportamiento (`guardrails.py`)**:
   * Sistema centralizado de guardrails inyectado como base en todas las tareas generativas (`document_qa.py`, `multi_doc_chat.py`, `translator.py`).
-  * Impone rieles de cortesía innegociable, respeto absoluto, neutralidad forense ante documentos conflictivos, rigor analítico y honestidad ante lagunas de información para prevenir que el modelo exponga al autor o emita expresiones inapropiadas.
+  * Impone rieles de cortesía innegociable, respeto absoluto, neutralidad forense ante documentos conflictivos, rigor analítico, honestidad ante lagunas de información y obligación estricta de responder siempre en el idioma activo de la interfaz del programa.
+* **Nueva pestaña `🌐 Traducir Documento` (Traducción directa fiel a fichero)**:
+  * Traducción contextual completa directa a **10 formatos** (`PDF`, `PDF/A-2b`, `Word .docx`, `LibreOffice .odt`, `eBook .epub`, `XLSX`, `ODS`, `CSV`, `TXT`, `JSON`), con fusión de líneas sin mezclar columnas (`merge_boxes_into_contextual_lines`), preservación de fondos/imágenes (*inpainting* sobre cajas originales), escala de grises, compresión y endpoint REST `POST /api/v1/ai/translate-document`.
+* **Exportación de Conversaciones y Preguntas con Referencias Literales (`conversation_exporter.py`)**:
+  * En **💬 Chat con Archivos** y **🧠 IA y Manuscritos** (con barra directa de pregunta integrada), exportación completa a **8 formatos** (`DOCX`, `PDF`, `PDF/A-2b`, `ODT`, `EPUB`, `Markdown`, `TXT`, `JSON`) anexando para cada cita el **texto literal íntegro extraído de los documentos originales**, además de soporte `export_format` y `references[].literal_text` en `POST /api/v1/ai/ask`.
 
 ### Seguridad y Auditoría Completa
 * **Mitigación contra Inyección Indirecta de Prompts (Indirect Prompt Injection)**:

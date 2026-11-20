@@ -11,7 +11,7 @@ import io
 from typing import List, Optional, Tuple
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from docx import Document
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
@@ -217,13 +217,18 @@ def build_docx(
     output_path: str,
     source_pdf_path: Optional[str] = None,
     use_native_pdf_converter: bool = False,
+    original_boxes_per_page: Optional[List[List[OCRBox]]] = None,
+    compression: str = "high",
+    grayscale: bool = False,
+    preserve_layout: bool = True,
 ) -> str:
     """
     Genera un archivo Microsoft Word (.docx) de alta fidelidad visual.
     Si el origen es un PDF con texto nativo y pdf2docx está disponible,
     utiliza pdf2docx para conservar tablas, columnas, fondos e imágenes originales.
-    En caso contrario (imágenes o PDFs escaneados), recrea el documento fielmente
-    combinando fondo limpio (inpainted) + cuadros de texto editables posicionados.
+    En caso contrario (imágenes, escaneos o documentos traducidos), recrea el documento:
+    - preserve_layout=True: fondo limpio (inpainting) + cuadros de texto editables posicionados.
+    - preserve_layout=False: documento fluido limpio de párrafos y encabezados estándar.
     """
     # 1. Ruta nativa para PDFs con texto buscable
     if use_native_pdf_converter and source_pdf_path and HAS_PDF2DOCX:
@@ -238,9 +243,11 @@ def build_docx(
             # Si pdf2docx falla con un PDF corrupto o atípico, continuar con el motor fiel
             pass
 
-    # 2. Ruta fiel visual (Exact Copy) para escaneos e imágenes
+    from .pdf_builder import COMPRESSION_PRESETS
+    preset = COMPRESSION_PRESETS.get(compression, COMPRESSION_PRESETS["high"])
+
+    # 2. Ruta fiel visual o documento fluido
     doc = Document()
-    total_pages = len(pages_with_boxes)
     shape_counter = 100
 
     for page_idx, (page_data, boxes) in enumerate(pages_with_boxes):
@@ -251,6 +258,31 @@ def build_docx(
 
         section.page_width = Pt(page_data.width_pt)
         section.page_height = Pt(page_data.height_pt)
+
+        if not preserve_layout:
+            section.top_margin = Pt(54)
+            section.bottom_margin = Pt(54)
+            section.left_margin = Pt(54)
+            section.right_margin = Pt(54)
+            lines = _group_boxes_into_lines(boxes)
+            heights = [b.height for b in boxes] if boxes else [15.0]
+            median_h = sorted(heights)[len(heights) // 2]
+            if lines:
+                for line_boxes in lines:
+                    line_txt = " ".join((b.text or "").strip() for b in line_boxes if (b.text or "").strip())
+                    if not line_txt:
+                        continue
+                    max_h = max(b.height for b in line_boxes)
+                    if max_h > median_h * 1.35:
+                        doc.add_heading(line_txt, level=2)
+                    else:
+                        doc.add_paragraph(line_txt)
+            elif page_data.embedded_text and page_data.embedded_text.strip():
+                for para in page_data.embedded_text.split("\n"):
+                    if para.strip():
+                        doc.add_paragraph(para.strip())
+            continue
+
         section.top_margin = Emu(0)
         section.bottom_margin = Emu(0)
         section.left_margin = Emu(0)
@@ -260,10 +292,22 @@ def build_docx(
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after = Pt(0)
 
-        # Fondo visual limpio (conserva imágenes, iconos, ventanas, logos y colores)
-        clean_bg = create_clean_background(page_data.image, boxes)
+        # Fondo visual limpio (usa las cajas originales si se traduce para borrar texto origen)
+        erase_boxes = (
+            original_boxes_per_page[page_idx]
+            if (original_boxes_per_page and page_idx < len(original_boxes_per_page))
+            else boxes
+        )
+        clean_bg = create_clean_background(page_data.image, erase_boxes)
+        if grayscale:
+            clean_bg = ImageOps.grayscale(clean_bg).convert("RGB")
+        max_side = preset["max_side"]
+        if max_side and max(clean_bg.size) > max_side:
+            clean_bg.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+
         bg_buf = io.BytesIO()
-        clean_bg.save(bg_buf, format="JPEG", quality=88, optimize=True)
+        bg_quality = 88 if compression == "high" else preset["quality"]
+        clean_bg.save(bg_buf, format="JPEG", quality=bg_quality, optimize=True)
         _add_behind_page_image(
             p,
             doc,
@@ -275,8 +319,8 @@ def build_docx(
 
         # Posicionar cada caja de texto editable con su color y tamaño real
         rgb_np = np.array(page_data.image.convert("RGB"))
-        scale_x = page_data.width_pt / float(page_data.width_px)
-        scale_y = page_data.height_pt / float(page_data.height_px)
+        scale_x = page_data.width_pt / float(max(page_data.width_px, 1))
+        scale_y = page_data.height_pt / float(max(page_data.height_px, 1))
 
         heights = [b.height for b in boxes] if boxes else [15.0]
         median_h = sorted(heights)[len(heights) // 2]
@@ -290,7 +334,7 @@ def build_docx(
             w_pt = max(b.width * scale_x, 12.0)
             h_pt = max(b.height * scale_y, 8.0)
             font_pt = max(5.5, min(h_pt * 0.78, 72.0))
-            color_hex = sample_text_color_hex(rgb_np, b)
+            color_hex = "111111" if grayscale else sample_text_color_hex(rgb_np, b)
             is_bold = b.height > median_h * 1.35
 
             shape_counter += 1

@@ -11,7 +11,7 @@ import time
 from typing import Callable, List, Optional, Tuple
 from .engine import OCREngine, OCRBox
 from .document_loader import DocumentLoader, PageData
-from .formats.pdf_builder import build_sandwich_pdf
+from .formats.pdf_builder import build_sandwich_pdf, build_translated_pdf
 from .formats.docx_builder import build_docx
 from .formats.odt_builder import build_odt
 from .formats.excel_builder import build_excel
@@ -202,6 +202,176 @@ class DocumentConverter:
         notify(
             f"✓ Completado en {elapsed:.2f}s "
             f"({native_pages} pág. nativas, {ocr_pages} OCR, {total_elements} elementos)."
+        )
+
+        return ConversionResult(
+            input_path=str(in_p),
+            output_path=final_output_path,
+            output_format=fmt,
+            total_pages=len(pages),
+            total_elements=total_elements,
+            elapsed_seconds=elapsed,
+            native_text_pages=native_pages,
+            ocr_pages=ocr_pages,
+        )
+
+    def translate_document(
+        self,
+        input_path: str,
+        output_path: Optional[str] = None,
+        output_format: str = "docx",
+        target_lang: str = "Español",
+        source_lang: str = "auto",
+        preserve_layout: bool = True,
+        pdf_compression: str = "high",
+        grayscale: bool = False,
+        force_ocr: bool = False,
+        handwriting: bool = False,
+        verbose: bool = True,
+        progress_cb: Optional[Callable[[str], None]] = None,
+    ) -> ConversionResult:
+        """
+        Traduce un documento completo mediante IA local (Qwen3-VL) y lo exporta
+        directamente al formato solicitado (PDF, PDF/A-2b, DOCX, ODT, EPUB, XLSX, ODS, CSV, TXT, JSON)
+        conservando fondos, colores, imágenes (vía inpainting) y estructura.
+        """
+        fmt = output_format.lower().lstrip(".")
+        if fmt not in self.SUPPORTED_FORMATS:
+            raise ValueError(
+                f"Formato '{output_format}' no soportado. "
+                f"Formatos disponibles: {', '.join(sorted(self.SUPPORTED_FORMATS))}"
+            )
+
+        def notify(msg: str):
+            if verbose:
+                print(f"[Open OCReader] {msg}")
+            if progress_cb:
+                progress_cb(msg)
+
+        from .ai import DocumentTranslator, HandwritingOCREngine, LlamaRuntimeManager
+
+        start_time = time.perf_counter()
+        in_p = Path(input_path)
+        file_ext = "pdf" if fmt == "pdfa" else fmt
+        safe_lang_tag = "".join(c for c in target_lang.lower() if c.isalnum())[:12] or "trad"
+        if not output_path:
+            out_p = in_p.parent / f"{in_p.stem}_traducido_{safe_lang_tag}.{file_ext}"
+            final_output_path = str(out_p)
+        else:
+            final_output_path = output_path
+
+        notify(f"Cargando documento para traducir a '{target_lang}': {in_p.name}")
+        pages = DocumentLoader.load_pages(str(in_p))
+        notify(f"Páginas detectadas: {len(pages)}")
+
+        runtime = LlamaRuntimeManager.get_instance()
+        translator = DocumentTranslator(runtime)
+        hw_engine = HandwritingOCREngine(runtime) if handwriting else None
+
+        pages_with_trans_boxes: List[Tuple[PageData, List[OCRBox]]] = []
+        original_boxes_per_page: List[List[OCRBox]] = []
+        total_elements = 0
+        native_pages = 0
+        ocr_pages = 0
+        effective_preserve = preserve_layout
+
+        for page in pages:
+            if page.has_embedded_text and not force_ocr and not handwriting and page.native_boxes:
+                notify(f"Página {page.page_number}/{len(pages)}: extrayendo texto nativo buscable...")
+                orig_boxes = page.native_boxes
+                native_pages += 1
+            elif hw_engine is not None:
+                notify(f"Página {page.page_number}/{len(pages)}: transcribiendo manuscrito con Qwen3-VL Visión...")
+                hw_txt = hw_engine.transcribe_image(page.image, progress_cb=notify)
+                raw_lines = [ln.strip() for ln in hw_txt.splitlines() if ln.strip()]
+                orig_boxes = []
+                n_ln = max(len(raw_lines), 1)
+                margin_x = page.width_px * 0.06
+                usable_w = max(page.width_px * 0.88, 40.0)
+                usable_h = max(page.height_px * 0.88, 40.0)
+                step_y = usable_h / float(n_ln)
+                line_h = min(step_y * 0.82, max(page.height_px * 0.03, 18.0))
+                for i_ln, ln_txt in enumerate(raw_lines):
+                    y0 = (page.height_px * 0.06) + i_ln * step_y
+                    y1 = y0 + line_h
+                    x0 = margin_x
+                    x1 = margin_x + usable_w
+                    orig_boxes.append(OCRBox(box=[[x0, y0], [x1, y0], [x1, y1], [x0, y1]], text=ln_txt, score=0.95))
+                if orig_boxes:
+                    # En manuscritos transcritos por VLM sin polígonos exactos, flujo limpio evita solapamientos
+                    effective_preserve = False
+                ocr_pages += 1
+            else:
+                notify(f"Página {page.page_number}/{len(pages)}: ejecutando OCR estructural...")
+                orig_boxes = self.engine.process_image(page.image)
+                ocr_pages += 1
+
+            original_boxes_per_page.append(orig_boxes)
+            notify(f"Página {page.page_number}/{len(pages)}: traduciendo contexto a '{target_lang}' con Qwen3-VL...")
+            trans_boxes = translator.translate_boxes(
+                orig_boxes,
+                target_lang=target_lang,
+                source_lang=source_lang,
+                progress_cb=notify,
+            )
+            page.embedded_text = "\n".join((b.text or "").strip() for b in trans_boxes if (b.text or "").strip())
+            total_elements += len(trans_boxes)
+            pages_with_trans_boxes.append((page, trans_boxes))
+
+        notify(f"Ensamblando documento traducido ({fmt.upper()}) -> {Path(final_output_path).name}")
+
+        if fmt in ("pdf", "pdfa"):
+            build_translated_pdf(
+                pages_with_trans_boxes,
+                final_output_path,
+                pdfa=(fmt == "pdfa"),
+                compression=pdf_compression,
+                grayscale=grayscale,
+                preserve_layout=effective_preserve,
+                original_boxes_per_page=original_boxes_per_page,
+            )
+        elif fmt == "docx":
+            build_docx(
+                pages_with_trans_boxes,
+                final_output_path,
+                source_pdf_path=None,
+                use_native_pdf_converter=False,
+                original_boxes_per_page=original_boxes_per_page,
+                compression=pdf_compression,
+                grayscale=grayscale,
+                preserve_layout=effective_preserve,
+            )
+        elif fmt == "odt":
+            build_odt(
+                pages_with_trans_boxes,
+                final_output_path,
+                original_boxes_per_page=original_boxes_per_page,
+                compression=pdf_compression,
+                grayscale=grayscale,
+                preserve_layout=effective_preserve,
+            )
+        elif fmt == "epub":
+            build_epub(
+                pages_with_trans_boxes,
+                final_output_path,
+                title=f"{in_p.stem} ({target_lang})",
+                include_page_images=effective_preserve,
+            )
+        elif fmt == "xlsx":
+            build_excel(pages_with_trans_boxes, final_output_path)
+        elif fmt == "ods":
+            build_ods(pages_with_trans_boxes, final_output_path)
+        elif fmt == "csv":
+            build_csv(pages_with_trans_boxes, final_output_path)
+        elif fmt == "txt":
+            build_txt(pages_with_trans_boxes, final_output_path)
+        elif fmt == "json":
+            build_json(pages_with_trans_boxes, final_output_path)
+
+        elapsed = time.perf_counter() - start_time
+        notify(
+            f"✓ Traducción a '{target_lang}' ({fmt.upper()}) completada en {elapsed:.2f}s "
+            f"({len(pages)} página(s), {total_elements} bloques)."
         )
 
         return ConversionResult(

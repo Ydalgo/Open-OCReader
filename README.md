@@ -15,6 +15,9 @@
 
 **Open OCReader** es una suite de código abierto, ligera, **100% local (offline)** y endurecida para la digitalización fiel de documentos, el reconocimiento de **letra manuscrita** y el análisis documental mediante Inteligencia Artificial.
 
+> 🛡️ **Arquitectura e Ingeniería compartida con el Proyecto Hermano [GuarIdA](https://github.com/Ydalgo/GuarIdA)**:
+> El motor de contexto sin límite de páginas (**Árbol de Nodos Documental AST**, **Compresión BPE**, **Búsqueda Híbrida RRF BM25 + BGE-M3**, **Persistencia Segregada SQLite WAL comprimida por SHA-256**, **Reutilización de KV Cache** y **Observación Dinámica de Hardware**) proviene de las investigaciones, ADRs y código del proyecto **[GuarIdA](https://github.com/Ydalgo/GuarIdA)** (*Guardián de Identidad y Asistencia con IA Local Soberana*, actualmente en desarrollo activo). ¡Te invitamos a visitarlo, darle una ⭐ y seguir su evolución!
+
 ---
 
 ## 🖼️ Capturas de Pantalla

@@ -70,6 +70,17 @@ class OpenOCReaderGUI:
         ("Máxima compresión (ligero)", "compact"),
     ]
 
+    EXPORT_CONV_FORMATS = [
+        ("Word (.docx)", "docx"),
+        ("PDF (.pdf)", "pdf"),
+        ("PDF/A-2b (.pdf)", "pdfa"),
+        ("LibreOffice (.odt)", "odt"),
+        ("eBook (.epub)", "epub"),
+        ("Markdown (.md)", "md"),
+        ("Texto (.txt)", "txt"),
+        ("JSON (.json)", "json"),
+    ]
+
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Open OCReader - Digitalización e IA Documental 100% Local")
@@ -117,6 +128,30 @@ class OpenOCReaderGUI:
         self.chat_question_var = tk.StringVar()
         self.chat_status_var = tk.StringVar(value="Añade uno o varios documentos (PDF o imágenes) y haz preguntas con citas.")
         self.chat_count_var = tk.StringVar(value="")
+        self.chat_export_fmt_var = tk.StringVar(value="Word (.docx)")
+
+        # Variables de pestaña Traducir Documento (directo a fichero fiel)
+        self.trans_source_lang_var = tk.StringVar(value="Auto-detectar")
+        self.trans_target_lang_var = tk.StringVar(value="Español")
+        self.trans_format_var = tk.StringVar(value="docx")
+        self.trans_format_desc_var = tk.StringVar(
+            value="ℹ️ Documento editable fiel (fondos, imágenes, tablas y texto traducido)"
+        )
+        self.trans_preserve_layout_var = tk.BooleanVar(value=True)
+        self.trans_grayscale_var = tk.BooleanVar(value=False)
+        self.trans_force_ocr_var = tk.BooleanVar(value=False)
+        self.trans_handwriting_var = tk.BooleanVar(value=False)
+        self.trans_compression_var = tk.StringVar(value=self.COMPRESSION_LABELS[0][0])
+        self.trans_output_path_var = tk.StringVar()
+        self.trans_status_var = tk.StringVar(
+            value="Selecciona un fichero arriba, elige idioma y formato de salida traducido."
+        )
+        self.last_translated_file: Optional[str] = None
+
+        # Variables de exportación en IA y Manuscritos / Preguntas con citas
+        self.ai_export_fmt_var = tk.StringVar(value="Word (.docx)")
+        self.last_ai_turn_record = None
+        self.ai_turn_records = []
 
         # Variables de Anonimización RGPD independiente (Paso 1: 100% Python + Paso 2: IA opcional)
         self.anon_mask_style_var = tk.StringVar(value="tags")
@@ -399,6 +434,7 @@ class OpenOCReaderGUI:
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         self.tab_convert = ttk.Frame(self.notebook, padding="10")
+        self.tab_translate = ttk.Frame(self.notebook, padding="10")
         self.tab_chat = ttk.Frame(self.notebook, padding="10")
         self.tab_ai = ttk.Frame(self.notebook, padding="10")
         self.tab_anonymize = ttk.Frame(self.notebook, padding="10")
@@ -406,6 +442,7 @@ class OpenOCReaderGUI:
         self.tab_pdf_tools = ttk.Frame(self.notebook, padding="10") if not self.pdf_tools_disabled else None
 
         self.notebook.add(self.tab_convert, text="  📄 Conversión  ")
+        self.notebook.add(self.tab_translate, text=tr(self.ui_lang, "tab_translate"))
         self.notebook.add(self.tab_chat, text="  💬 Chat con Archivos  ")
         self.notebook.add(self.tab_ai, text="  🧠 IA y Manuscritos  ")
         self.notebook.add(self.tab_anonymize, text="  🔒 Anonimizar (RGPD)  ")
@@ -413,6 +450,7 @@ class OpenOCReaderGUI:
             self.notebook.add(self.tab_pdf_tools, text=tr(self.ui_lang, "tab_pdf_tools"))
 
         self._build_convert_tab()
+        self._build_translate_tab()
         self._build_chat_tab()
         self._build_ai_tab()
         self._build_anonymize_tab()
@@ -584,6 +622,275 @@ class OpenOCReaderGUI:
             wraplength=760,
         ).pack(anchor="w", pady=(12, 0))
 
+    # ---------------- PESTAÑA 1B: TRADUCIR DOCUMENTO ----------------
+    def _build_translate_tab(self):
+        if not self.ai_tier.vlm_enabled:
+            self._render_hardware_locked_notice(
+                self.tab_translate,
+                "Traducción Fiel de Documentos a Fichero",
+                [
+                    "Traducción contextual completa directa a PDF, PDF/A-2b, Word (.docx), ODT y eBook (.epub).",
+                    "Preservación de fondos, colores, logotipos e imágenes originales mediante inpainting IA.",
+                    "Soporte multilingüe 100% offline (Español, English, Svenska, Français, Deutsch, etc.).",
+                ],
+            )
+            return
+
+        # 1. Idiomas origen y destino
+        lang_grp = ttk.LabelFrame(self.tab_translate, text=" 🌐 Idiomas de traducción contextual ", padding="8")
+        lang_grp.pack(fill=tk.X, pady=(0, 8))
+
+        lang_row = ttk.Frame(lang_grp)
+        lang_row.pack(fill=tk.X)
+
+        ttk.Label(lang_row, text="Idioma origen:").pack(side=tk.LEFT, padx=(0, 6))
+        self.trans_src_combo = ttk.Combobox(
+            lang_row,
+            textvariable=self.trans_source_lang_var,
+            values=["Auto-detectar"] + TRANSLATION_TARGET_LANGUAGES,
+            width=18,
+        )
+        self.trans_src_combo.pack(side=tk.LEFT, padx=(0, 18))
+
+        ttk.Label(lang_row, text="Idioma destino:").pack(side=tk.LEFT, padx=(0, 6))
+        self.trans_dst_combo = ttk.Combobox(
+            lang_row,
+            textvariable=self.trans_target_lang_var,
+            values=TRANSLATION_TARGET_LANGUAGES,
+            width=18,
+        )
+        self.trans_dst_combo.pack(side=tk.LEFT, padx=(0, 12))
+        self.trans_dst_combo.bind("<<ComboboxSelected>>", lambda e: self._update_default_translate_output())
+
+        ttk.Label(
+            lang_row,
+            text="Traducción contextual con Qwen3-VL y Prompt Madre",
+            font=("Segoe UI", 8, "italic"),
+            foreground="#1e6b1e",
+        ).pack(side=tk.RIGHT)
+
+        # 2. Selector de formato traducido (10 formatos en 2 columnas)
+        fmt_grp = ttk.LabelFrame(self.tab_translate, text=" 📁 Formato del documento traducido ", padding="8")
+        fmt_grp.pack(fill=tk.X, pady=(0, 8))
+
+        grid_f = ttk.Frame(fmt_grp)
+        grid_f.pack(fill=tk.X)
+        grid_f.columnconfigure(0, weight=1)
+        grid_f.columnconfigure(1, weight=1)
+
+        for idx, (_lbl, fmt_key, _desc) in enumerate(self.FORMAT_OPTIONS):
+            row_i = idx // 2
+            col_i = idx % 2
+            lbl_txt, _desc_txt = tr(self.ui_lang, f"fmt_{fmt_key}")
+            ttk.Radiobutton(
+                grid_f,
+                text=lbl_txt,
+                value=fmt_key,
+                variable=self.trans_format_var,
+                command=self._on_trans_format_changed,
+            ).grid(row=row_i, column=col_i, sticky="w", padx=(4, 16), pady=2)
+
+        ttk.Label(
+            fmt_grp,
+            textvariable=self.trans_format_desc_var,
+            font=("Segoe UI", 8, "italic"),
+            foreground="#1f4e79",
+        ).pack(anchor="w", padx=(4, 0), pady=(4, 0))
+
+        # 3. Opciones de maquetación, color, imagen y OCR
+        vis_grp = ttk.LabelFrame(self.tab_translate, text=" 🎨 Maquetación y optimización de color e imagen ", padding="8")
+        vis_grp.pack(fill=tk.X, pady=(0, 8))
+
+        r1 = ttk.Frame(vis_grp)
+        r1.pack(fill=tk.X)
+        ttk.Checkbutton(
+            r1,
+            text="Preservar diseño visual, colores, fondos e imágenes (Inpainting)",
+            variable=self.trans_preserve_layout_var,
+        ).pack(side=tk.LEFT)
+        ttk.Checkbutton(
+            r1,
+            text="Escala de grises (blanco y negro)",
+            variable=self.trans_grayscale_var,
+        ).pack(side=tk.RIGHT)
+
+        r2 = ttk.Frame(vis_grp)
+        r2.pack(fill=tk.X, pady=(4, 0))
+        ttk.Checkbutton(
+            r2,
+            text="Forzar OCR (re-escanear)",
+            variable=self.trans_force_ocr_var,
+        ).pack(side=tk.LEFT, padx=(0, 14))
+        ttk.Checkbutton(
+            r2,
+            text="Modo letra manuscrita (Visión)",
+            variable=self.trans_handwriting_var,
+        ).pack(side=tk.LEFT, padx=(0, 14))
+        ttk.Label(r2, text="Compresión:").pack(side=tk.LEFT, padx=(8, 4))
+        ttk.Combobox(
+            r2,
+            textvariable=self.trans_compression_var,
+            values=[lbl for lbl, _code in self.COMPRESSION_LABELS],
+            state="readonly",
+            width=24,
+        ).pack(side=tk.LEFT)
+
+        # 4. Fichero de salida traducido
+        out_grp = ttk.LabelFrame(self.tab_translate, text=" 💾 Fichero traducido de salida ", padding="8")
+        out_grp.pack(fill=tk.X, pady=(0, 10))
+
+        out_row = ttk.Frame(out_grp)
+        out_row.pack(fill=tk.X)
+        ttk.Entry(out_row, textvariable=self.trans_output_path_var, font=("Segoe UI", 9)).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8)
+        )
+        ttk.Button(out_row, text="Guardar como...", command=self._browse_translate_output).pack(side=tk.RIGHT)
+
+        # 5. Botón principal, progreso y apertura rápida
+        self.btn_translate_doc = ttk.Button(
+            self.tab_translate,
+            text="🌐  Traducir y Generar Documento",
+            command=self._start_document_translation,
+        )
+        self.btn_translate_doc.pack(fill=tk.X, ipady=6, pady=(2, 6))
+
+        self.trans_progress = ttk.Progressbar(self.tab_translate, mode="indeterminate")
+        self.trans_progress.pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Label(
+            self.tab_translate,
+            textvariable=self.trans_status_var,
+            font=("Segoe UI", 9),
+            foreground=self.palette["fg"],
+            wraplength=820,
+        ).pack(anchor="w")
+
+        post_trans = ttk.Frame(self.tab_translate)
+        post_trans.pack(fill=tk.X, pady=(8, 0))
+        self.btn_open_trans_file = ttk.Button(
+            post_trans, text="📄 Abrir documento traducido", command=self._open_translated_file, state=tk.DISABLED
+        )
+        self.btn_open_trans_file.pack(side=tk.LEFT, padx=(0, 8))
+        self.btn_open_trans_folder = ttk.Button(
+            post_trans, text="📁 Abrir carpeta", command=self._open_translated_folder, state=tk.DISABLED
+        )
+        self.btn_open_trans_folder.pack(side=tk.LEFT)
+
+    def _on_trans_format_changed(self):
+        fmt = self.trans_format_var.get()
+        _lbl, desc_txt = tr(self.ui_lang, f"fmt_{fmt}")
+        self.trans_format_desc_var.set(f"ℹ️ {desc_txt}")
+        self._update_default_translate_output()
+
+    def _update_default_translate_output(self):
+        in_val = self.input_path_var.get().strip()
+        if not in_val:
+            return
+        in_p = Path(in_val)
+        fmt = self.trans_format_var.get()
+        ext = "pdf" if fmt == "pdfa" else fmt
+        tgt = self.trans_target_lang_var.get().strip() or "trad"
+        lang_tag = "".join(c for c in tgt.lower() if c.isalnum())[:10] or "trad"
+        self.trans_output_path_var.set(str(in_p.parent / f"{in_p.stem}_traducido_{lang_tag}.{ext}"))
+
+    def _browse_translate_output(self):
+        fmt = self.trans_format_var.get()
+        ext = ".pdf" if fmt == "pdfa" else f".{fmt}"
+        chosen = filedialog.asksaveasfilename(
+            title="Guardar documento traducido como...",
+            defaultextension=ext,
+            filetypes=[(f"Fichero {fmt.upper()} (*{ext})", f"*{ext}"), ("Todos (*.*)", "*.*")],
+        )
+        if chosen:
+            self.trans_output_path_var.set(chosen)
+
+    def _start_document_translation(self):
+        in_path = self.input_path_var.get().strip()
+        if not in_path or not Path(in_path).exists():
+            messagebox.showwarning("Aviso", "Selecciona primero un fichero de entrada arriba.")
+            return
+
+        from .ai import LlamaRuntimeManager
+        runtime = LlamaRuntimeManager.get_instance()
+        if not runtime.is_models_present():
+            chosen_source = self._ask_model_download_source()
+            if not chosen_source:
+                return
+            runtime.preferred_model_source = chosen_source
+
+        out_path = self.trans_output_path_var.get().strip()
+        if not out_path:
+            self._update_default_translate_output()
+            out_path = self.trans_output_path_var.get().strip()
+
+        fmt = self.trans_format_var.get()
+        target_lang = self.trans_target_lang_var.get().strip() or get_llm_language_name(self.ui_lang)
+        raw_src = self.trans_source_lang_var.get().strip()
+        source_lang = "auto" if (not raw_src or raw_src.lower().startswith("auto")) else raw_src
+        preserve_layout = self.trans_preserve_layout_var.get()
+        grayscale = self.trans_grayscale_var.get()
+        force_ocr = self.trans_force_ocr_var.get()
+        handwriting = self.trans_handwriting_var.get()
+        comp_lbl = self.trans_compression_var.get()
+        comp_code = next((c for lbl, c in self.COMPRESSION_LABELS if lbl == comp_lbl), "high")
+
+        self.btn_translate_doc.config(state=tk.DISABLED)
+        self.btn_open_trans_file.config(state=tk.DISABLED)
+        self.btn_open_trans_folder.config(state=tk.DISABLED)
+        self.trans_progress.start(10)
+        self.trans_status_var.set(f"Iniciando traducción a '{target_lang}' ({fmt.upper()})...")
+
+        def worker():
+            try:
+                converter = DocumentConverter()
+                res = converter.translate_document(
+                    input_path=in_path,
+                    output_path=out_path,
+                    output_format=fmt,
+                    target_lang=target_lang,
+                    source_lang=source_lang,
+                    preserve_layout=preserve_layout,
+                    pdf_compression=comp_code,
+                    grayscale=grayscale,
+                    force_ocr=force_ocr,
+                    handwriting=handwriting,
+                    verbose=False,
+                    progress_cb=lambda m: self.root.after(0, self.trans_status_var.set, m),
+                )
+
+                def on_ok():
+                    self.trans_progress.stop()
+                    self.btn_translate_doc.config(state=tk.NORMAL)
+                    self.last_translated_file = res.output_path
+                    self.btn_open_trans_file.config(state=tk.NORMAL)
+                    self.btn_open_trans_folder.config(state=tk.NORMAL)
+                    self.trans_status_var.set(
+                        f"✓ Documento traducido ({res.total_pages} pág., {res.total_elements} bloques) "
+                        f"en {res.elapsed_seconds:.2f}s → {Path(res.output_path).name}"
+                    )
+
+                self.root.after(0, on_ok)
+            except Exception as e:
+                logger.exception(f"Error en traducción directa de documento: {e}")
+
+                def on_err(msg=str(e)):
+                    self.trans_progress.stop()
+                    self.btn_translate_doc.config(state=tk.NORMAL)
+                    self.trans_status_var.set(f"Error en traducción: {msg}")
+                    messagebox.showerror("Error al traducir documento", msg)
+
+                self.root.after(0, on_err)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _open_translated_file(self):
+        if self.last_translated_file and Path(self.last_translated_file).exists():
+            self._open_path_crossplatform(self.last_translated_file)
+
+    def _open_translated_folder(self):
+        if self.last_translated_file:
+            self._open_path_crossplatform(str(Path(self.last_translated_file).parent))
+
     # ---------------- PESTAÑA 2: CHAT MULTI-DOCUMENTO CON CITAS ----------------
     def _build_chat_tab(self):
         if not self.ai_tier.vlm_enabled:
@@ -676,15 +983,34 @@ class OpenOCReaderGUI:
         input_bar = ttk.LabelFrame(self.tab_chat, text=" 💬 Preguntar a los documentos cargados (Ctrl+Rueda para Zoom) ", padding="6")
         input_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
 
-        self.chat_entry = ttk.Entry(input_bar, textvariable=self.chat_question_var, font=("Segoe UI", 11))
+        ask_row = ttk.Frame(input_bar)
+        ask_row.pack(fill=tk.X)
+
+        self.chat_entry = ttk.Entry(ask_row, textvariable=self.chat_question_var, font=("Segoe UI", 11))
         self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6), ipady=3)
         self.chat_entry.bind("<Return>", lambda e: self._chat_send())
 
-        ttk.Button(input_bar, text="A-", width=3, command=lambda: self._adjust_text_zoom(-1)).pack(side=tk.LEFT, padx=1)
-        ttk.Button(input_bar, text="A+", width=3, command=lambda: self._adjust_text_zoom(1)).pack(side=tk.LEFT, padx=(1, 6))
+        ttk.Button(ask_row, text="A-", width=3, command=lambda: self._adjust_text_zoom(-1)).pack(side=tk.LEFT, padx=1)
+        ttk.Button(ask_row, text="A+", width=3, command=lambda: self._adjust_text_zoom(1)).pack(side=tk.LEFT, padx=(1, 6))
 
-        self.btn_chat_send = ttk.Button(input_bar, text="💬 Enviar pregunta", command=self._chat_send)
+        self.btn_chat_send = ttk.Button(ask_row, text="💬 Enviar pregunta", command=self._chat_send)
         self.btn_chat_send.pack(side=tk.RIGHT, ipadx=8, ipady=2)
+
+        export_row = ttk.Frame(input_bar)
+        export_row.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(export_row, text="Exportar conversación (con referencias literales):").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Combobox(
+            export_row,
+            textvariable=self.chat_export_fmt_var,
+            values=[lbl for lbl, _code in self.EXPORT_CONV_FORMATS],
+            state="readonly",
+            width=18,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(
+            export_row,
+            text="📥 Exportar chat + citas literales",
+            command=self._chat_export_conversation,
+        ).pack(side=tk.LEFT)
 
         # Historial de conversación con citas (ocupa el espacio central restante)
         chat_box_frame = ttk.Frame(self.tab_chat)
@@ -730,16 +1056,71 @@ class OpenOCReaderGUI:
         self.chat_history_text.insert(tk.END, f"{sender}:\n", tag_lbl)
         self.chat_history_text.insert(tk.END, f"{text}\n")
         if refs:
-            self.chat_history_text.insert(tk.END, "📚 Referencias consultadas:\n", "ref_lbl")
+            self.chat_history_text.insert(tk.END, "📚 Referencias consultadas (con extracto literal original):\n", "ref_lbl")
             for r in refs:
                 self.chat_history_text.insert(
                     tk.END,
                     f"  • [{r.doc_id} / {r.ref_id}] {r.file_name} — {r.section_path}\n",
                     "ref_body",
                 )
+                lit_preview = (getattr(r, "literal_text", "") or r.excerpt or "").strip().replace("\n", " ")
+                if len(lit_preview) > 260:
+                    lit_preview = lit_preview[:257] + "..."
+                if lit_preview:
+                    self.chat_history_text.insert(tk.END, f"      «{lit_preview}»\n", "ref_body")
         self.chat_history_text.insert(tk.END, "\n")
         self.chat_history_text.see(tk.END)
         self.chat_history_text.config(state=tk.DISABLED)
+
+    def _export_turns_dialog(self, turns, fmt_label: str, default_stem: str, title: str, docs_summary=None):
+        """Helper compartido para exportar conversaciones o consultas con citas literales al formato elegido."""
+        from .formats.conversation_exporter import export_conversation_with_references
+
+        fmt_code = next((c for lbl, c in self.EXPORT_CONV_FORMATS if lbl == fmt_label), "docx")
+        ext = ".pdf" if fmt_code == "pdfa" else f".{fmt_code}"
+        chosen = filedialog.asksaveasfilename(
+            title=f"Exportar informe ({fmt_label})",
+            initialfile=f"{default_stem}{ext}",
+            defaultextension=ext,
+            filetypes=[(f"{fmt_label} (*{ext})", f"*{ext}"), ("Todos (*.*)", "*.*")],
+        )
+        if not chosen:
+            return None
+        return export_conversation_with_references(
+            turns=turns,
+            output_path=chosen,
+            output_format=fmt_code,
+            title=title,
+            documents_summary=docs_summary,
+        )
+
+    def _chat_export_conversation(self):
+        if self.chat_engine is None or not getattr(self.chat_engine, "turn_records", None):
+            messagebox.showinfo(
+                "Sin conversación",
+                "Realiza al menos una pregunta en el chat para poder exportar la conversación con sus citas literales.",
+            )
+            return
+        try:
+            doc_ids = self.chat_engine.get_document_id_map()
+            docs_summary = [
+                f"[{doc_ids[p]}] {fname} ({len(tree.nodos)} nodos AST)"
+                for p, (fname, tree) in self.chat_engine.documents.items()
+            ]
+            out = self._export_turns_dialog(
+                turns=self.chat_engine.turn_records,
+                fmt_label=self.chat_export_fmt_var.get(),
+                default_stem="Conversacion_Documentos_Referencias",
+                title="Informe de Chat Multi-Documento y Referencias Literales — Open OCReader",
+                docs_summary=docs_summary,
+            )
+            if out:
+                self.chat_status_var.set(f"✓ Conversación y citas literales exportadas: {Path(out).name}")
+                if messagebox.askyesno("Exportación completada", f"Archivo generado:\n{out}\n\n¿Deseas abrirlo ahora?"):
+                    self._open_path_crossplatform(out)
+        except Exception as e:
+            logger.exception(f"Error exportando conversación: {e}")
+            messagebox.showerror("Error al exportar", f"No se pudo exportar la conversación:\n{e}")
 
     def _chat_add_files(self):
         filetypes = [
@@ -1051,7 +1432,20 @@ class OpenOCReaderGUI:
         )
         self.translate_lang_combo.pack(side=tk.LEFT)
 
-        self.ai_buttons.extend([self.btn_ai_transcribe, self.btn_ai_summarize, self.btn_ai_translate])
+        ask_row = ttk.Frame(self.ai_actions_frame)
+        ask_row.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(ask_row, text=tr(self.ui_lang, "lbl_question")).pack(side=tk.LEFT, padx=(0, 6))
+        self.ai_question_entry = ttk.Entry(ask_row, textvariable=self.question_var, font=("Segoe UI", 10))
+        self.ai_question_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        self.ai_question_entry.bind("<Return>", lambda e: self._run_ai_action("ask"))
+        self.btn_ai_ask = ttk.Button(
+            ask_row,
+            text=tr(self.ui_lang, "btn_ask"),
+            command=lambda: self._run_ai_action("ask"),
+        )
+        self.btn_ai_ask.pack(side=tk.RIGHT)
+
+        self.ai_buttons.extend([self.btn_ai_transcribe, self.btn_ai_summarize, self.btn_ai_translate, self.btn_ai_ask])
 
         # Progreso y estado IA
         self.ai_progress = ttk.Progressbar(self.tab_ai, mode="indeterminate")
@@ -1101,7 +1495,21 @@ class OpenOCReaderGUI:
         ai_bottom.pack(fill=tk.X, pady=(6, 0))
 
         ttk.Button(ai_bottom, text="📋 Copiar texto", command=self._copy_ai_output).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(ai_bottom, text="💾 Guardar como .txt", command=self._save_ai_output).pack(side=tk.LEFT)
+        ttk.Button(ai_bottom, text="💾 Guardar .txt", command=self._save_ai_output).pack(side=tk.LEFT, padx=(0, 12))
+
+        ttk.Label(ai_bottom, text="Exportar consulta + referencias literales:").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Combobox(
+            ai_bottom,
+            textvariable=self.ai_export_fmt_var,
+            values=[lbl for lbl, _code in self.EXPORT_CONV_FORMATS],
+            state="readonly",
+            width=16,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(
+            ai_bottom,
+            text="📥 Exportar informe...",
+            command=self._export_ai_output_with_refs,
+        ).pack(side=tk.LEFT)
 
     # ---------------- PESTAÑA 4: ANONIMIZADOR RGPD (100% PYTHON + IA OPCIONAL) ----------------
     def _build_anonymize_tab(self):
@@ -1458,7 +1866,9 @@ class OpenOCReaderGUI:
                 break
         # Sincronizar el idioma destino de traducción por defecto con el idioma elegido
         self.translate_lang_var.set(selected_name)
+        self.trans_target_lang_var.set(selected_name)
         self._apply_language()
+        self._update_default_translate_output()
 
     def _apply_language(self):
         lang = self.ui_lang
@@ -1474,6 +1884,7 @@ class OpenOCReaderGUI:
         self.btn_paste.config(text=tr(lang, "btn_paste"))
         self.btn_browse.config(text=tr(lang, "btn_browse"))
         self.notebook.tab(self.tab_convert, text=tr(lang, "tab_convert"))
+        self.notebook.tab(self.tab_translate, text=tr(lang, "tab_translate"))
         self.notebook.tab(self.tab_ai, text=tr(lang, "tab_ai"))
         if self.tab_pdf_tools is not None:
             self.notebook.tab(self.tab_pdf_tools, text=tr(lang, "tab_pdf_tools"))
@@ -1484,6 +1895,8 @@ class OpenOCReaderGUI:
             if desc_lbl is not None:
                 desc_lbl.config(text=f"— {desc_txt}")
         self._on_format_changed()
+        if self.ai_tier.vlm_enabled and hasattr(self, "trans_format_desc_var"):
+            self._on_trans_format_changed()
         self.output_group.config(text=tr(lang, "output_group"))
         self.btn_save_as.config(text=tr(lang, "btn_save_as"))
         self.btn_convert.config(text=tr(lang, "btn_convert"))
@@ -1495,6 +1908,8 @@ class OpenOCReaderGUI:
             self.btn_ai_transcribe.config(text=tr(lang, "btn_transcribe"))
             self.btn_ai_summarize.config(text=tr(lang, "btn_summarize"))
             self.btn_ai_translate.config(text=tr(lang, "btn_translate"))
+            if hasattr(self, "btn_ai_ask"):
+                self.btn_ai_ask.config(text=tr(lang, "btn_ask"))
         self.footer_lbl.config(text=tr(lang, "footer"))
         if not self.input_path_var.get().strip():
             self.drop_canvas.itemconfigure(self.drop_text_id, text=tr(lang, "drop_prompt"))
@@ -1582,7 +1997,10 @@ class OpenOCReaderGUI:
         self.input_path_var.set(str(path_obj.resolve()))
         self.cached_doc_text = None
         self.cached_doc_key = None
+        self.last_ai_turn_record = None
+        self.ai_turn_records = []
         self._update_default_output()
+        self._update_default_translate_output()
 
         self.drop_canvas.config(bg="#eaf4ea", highlightbackground="#88bb88")
         self.drop_canvas.itemconfigure(
@@ -1591,6 +2009,7 @@ class OpenOCReaderGUI:
             fill="#1e6b1e",
         )
         self.status_var.set(f"Fichero listo: {path_obj.name}")
+        self.trans_status_var.set(f"Fichero listo para traducir: {path_obj.name}")
         self.ai_status_var.set(f"Documento cargado: {path_obj.name}. Elige una acción de IA.")
 
     def _browse_input(self):
@@ -1861,37 +2280,110 @@ class OpenOCReaderGUI:
                 self.cached_doc_tree = doc_tree
                 self.cached_doc_key = cache_key
 
+            from datetime import datetime
+            from .ai.multi_doc_chat import ChatReference, ChatTurnRecord
+
             response_lang = get_llm_language_name(self.ui_lang)
             target_translate_lang = self.translate_lang_var.get().strip() or response_lang
+            fname = Path(in_path).name
+            ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            turn_record = None
 
             if action == "transcribe":
                 output_text = doc_text
+                turn_record = ChatTurnRecord(
+                    question="Transcripción completa del documento",
+                    answer=output_text,
+                    references=[],
+                    timestamp=ts_now,
+                )
             elif action == "summarize":
                 output_text = DocumentQA(runtime).summarize(
                     doc_text, response_lang=response_lang, progress_cb=update_status, doc_tree=doc_tree
+                )
+                turn_record = ChatTurnRecord(
+                    question="Resumen ejecutivo del documento",
+                    answer=output_text,
+                    references=[
+                        ChatReference(
+                            ref_id="REF-1",
+                            doc_id="DOC-1",
+                            file_name=fname,
+                            section_path="Documento fuente",
+                            score=1.0,
+                            excerpt=doc_text[:180],
+                            literal_text=doc_text.strip()[:8000],
+                        )
+                    ],
+                    timestamp=ts_now,
                 )
             elif action == "translate":
                 output_text = DocumentTranslator(runtime).translate(
                     doc_text, target_lang=target_translate_lang, progress_cb=update_status
                 )
+                turn_record = ChatTurnRecord(
+                    question=f"Traducción contextual a {target_translate_lang}",
+                    answer=output_text,
+                    references=[
+                        ChatReference(
+                            ref_id="REF-1",
+                            doc_id="DOC-1",
+                            file_name=fname,
+                            section_path="Texto original completo",
+                            score=1.0,
+                            excerpt=doc_text[:180],
+                            literal_text=doc_text.strip()[:8000],
+                        )
+                    ],
+                    timestamp=ts_now,
+                )
             elif action == "anonymize":
                 output_text = DocumentAnonymizer(runtime).anonymize(doc_text, progress_cb=update_status)
-            elif action == "ask":
-                output_text = DocumentQA(runtime).ask(
-                    doc_text, question, response_lang=response_lang, progress_cb=update_status, doc_tree=doc_tree
+                turn_record = ChatTurnRecord(
+                    question="Anonimización RGPD del documento",
+                    answer=output_text,
+                    references=[],
+                    timestamp=ts_now,
                 )
+            elif action == "ask":
+                ans, refs = DocumentQA(runtime).ask_with_references(
+                    doc_text,
+                    question,
+                    response_lang=response_lang,
+                    progress_cb=update_status,
+                    doc_tree=doc_tree,
+                    file_name=fname,
+                )
+                turn_record = ChatTurnRecord(
+                    question=question,
+                    answer=ans,
+                    references=refs,
+                    timestamp=ts_now,
+                )
+                ref_lines = []
+                if refs:
+                    ref_lines.append("\n\n📚 REFERENCIAS LITERALES EXTRAÍDAS DEL DOCUMENTO ORIGINAL:")
+                    for r in refs:
+                        ref_lines.append(
+                            f"\n• [{r.doc_id} / {r.ref_id}] {r.file_name} — {r.section_path}\n"
+                            f"«{(r.literal_text or r.excerpt).strip()}»"
+                        )
+                output_text = ans + "\n".join(ref_lines)
             else:
                 output_text = doc_text
 
-            self.root.after(0, self._on_ai_success, output_text)
+            self.root.after(0, self._on_ai_success, output_text, turn_record)
         except Exception as e:
             logger.exception(f"Error en acción IA '{action}' para '{in_path}': {e}")
             self.root.after(0, self._on_ai_error, str(e))
 
-    def _on_ai_success(self, result_text: str):
+    def _on_ai_success(self, result_text: str, turn_record=None):
         self.ai_progress.stop()
         for b in self.ai_buttons:
             b.config(state=tk.NORMAL)
+        if turn_record is not None:
+            self.last_ai_turn_record = turn_record
+            self.ai_turn_records.append(turn_record)
         self.ai_output_text.delete("1.0", tk.END)
         self.ai_output_text.insert("1.0", result_text)
         self.ai_status_var.set("✓ Proceso de IA completado con éxito.")
@@ -1946,6 +2438,49 @@ class OpenOCReaderGUI:
         if chosen:
             Path(chosen).write_text(content, encoding="utf-8")
             self.ai_status_var.set(f"✓ Guardado en: {chosen}")
+
+    def _export_ai_output_with_refs(self):
+        """Exporta las preguntas/resultados de la pestaña IA con sus referencias literales al formato elegido."""
+        content = self.ai_output_text.get("1.0", tk.END).strip()
+        turns = list(self.ai_turn_records)
+        if not turns and self.last_ai_turn_record is not None:
+            turns = [self.last_ai_turn_record]
+        if not turns and not content:
+            messagebox.showinfo(
+                "Sin resultados",
+                "Realiza una consulta, resumen o traducción primero para exportarlo al formato deseado.",
+            )
+            return
+        if not turns and content:
+            from datetime import datetime
+            from .ai.multi_doc_chat import ChatTurnRecord
+            turns = [
+                ChatTurnRecord(
+                    question="Resultado generado en pantalla",
+                    answer=content,
+                    references=[],
+                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                )
+            ]
+
+        try:
+            in_val = self.input_path_var.get().strip()
+            fname = Path(in_val).name if in_val else "Documento"
+            stem = f"{Path(in_val).stem}_consulta_referencias" if in_val else "Consulta_IA_Referencias"
+            out = self._export_turns_dialog(
+                turns=turns,
+                fmt_label=self.ai_export_fmt_var.get(),
+                default_stem=stem,
+                title=f"Informe de Consulta e IA con Referencias Literales — {fname}",
+                docs_summary=[f"[DOC-1] {fname}"] if in_val else None,
+            )
+            if out:
+                self.ai_status_var.set(f"✓ Exportado con referencias literales: {Path(out).name}")
+                if messagebox.askyesno("Exportación completada", f"Archivo generado:\n{out}\n\n¿Deseas abrirlo ahora?"):
+                    self._open_path_crossplatform(out)
+        except Exception as e:
+            logger.exception(f"Error exportando consulta IA: {e}")
+            messagebox.showerror("Error al exportar", f"No se pudo exportar el informe:\n{e}")
 
     def _open_file(self):
         if self.last_generated_file and Path(self.last_generated_file).exists():

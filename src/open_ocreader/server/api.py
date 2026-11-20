@@ -329,6 +329,56 @@ def create_app() -> FastAPI:
             logger.exception(f"[API] Error en translate: {e}")
             raise HTTPException(status_code=500, detail="Error interno al traducir el documento.")
 
+    @api.post("/api/v1/ai/translate-document", dependencies=[Depends(_verify_api_key)])
+    def ai_translate_document(
+        background_tasks: BackgroundTasks,
+        file: UploadFile = File(...),
+        format: str = Form("docx"),
+        target_lang: str = Form("Español"),
+        source_lang: str = Form("auto"),
+        preserve_layout: bool = Form(True),
+        compression: str = Form("high"),
+        grayscale: bool = Form(False),
+        force_ocr: bool = Form(False),
+        handwriting: bool = Form(False),
+    ):
+        fmt = format.lower().lstrip(".")
+        if fmt not in DocumentConverter.SUPPORTED_FORMATS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Formato '{format}' no soportado. Válidos: {', '.join(sorted(DocumentConverter.SUPPORTED_FORMATS))}",
+            )
+        in_path = _save_upload_to_temp(file)
+        ext = "pdf" if fmt == "pdfa" else fmt
+        safe_tag = "".join(c for c in target_lang.lower() if c.isalnum())[:10] or "trad"
+        out_path = in_path.parent / f"{in_path.stem}_traducido_{safe_tag}.{ext}"
+        background_tasks.add_task(_cleanup_paths, in_path.parent)
+        try:
+            logger.info(f"[API] Traduciendo documento '{in_path.name}' -> '{target_lang}' ({fmt})")
+            DocumentConverter().translate_document(
+                input_path=str(in_path),
+                output_path=str(out_path),
+                output_format=fmt,
+                target_lang=target_lang,
+                source_lang=source_lang,
+                preserve_layout=preserve_layout,
+                pdf_compression=compression,
+                grayscale=grayscale,
+                force_ocr=force_ocr,
+                handwriting=handwriting,
+                verbose=False,
+            )
+            return FileResponse(
+                path=str(out_path),
+                filename=out_path.name,
+                media_type="application/octet-stream",
+            )
+        except SecurityError as se:
+            raise HTTPException(status_code=400, detail=str(se))
+        except Exception as e:
+            logger.exception(f"[API] Error en translate-document: {e}")
+            raise HTTPException(status_code=500, detail="Error interno al traducir el documento completo.")
+
     @api.post("/api/v1/ai/anonymize", dependencies=[Depends(_verify_api_key)])
     def ai_anonymize(
         background_tasks: BackgroundTasks,
@@ -367,19 +417,75 @@ def create_app() -> FastAPI:
         question: str = Form(...),
         handwriting: bool = Form(False),
         lang: str = Form("es"),
+        export_format: Optional[str] = Form(None),
     ):
+        from datetime import datetime
         from ..ai import DocumentQA, LlamaRuntimeManager
+        from ..ai.multi_doc_chat import ChatTurnRecord
+        from ..formats.conversation_exporter import (
+            SUPPORTED_CONVERSATION_EXPORT_FORMATS,
+            export_conversation_with_references,
+        )
         from ..i18n import get_llm_language_name
+
         if len(question) > 2000:
             raise HTTPException(status_code=400, detail="La pregunta supera el límite de 2000 caracteres.")
+
+        exp_fmt = export_format.lower().lstrip(".") if export_format else None
+        if exp_fmt and exp_fmt not in SUPPORTED_CONVERSATION_EXPORT_FORMATS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"export_format '{export_format}' no soportado. Válidos: {', '.join(SUPPORTED_CONVERSATION_EXPORT_FORMATS)}",
+            )
+
         in_path = _save_upload_to_temp(file)
         background_tasks.add_task(_cleanup_paths, in_path.parent)
         try:
             text = _extract_document_text(in_path, handwriting=handwriting)
-            answer = DocumentQA(LlamaRuntimeManager.get_instance()).ask(
-                text, question, response_lang=get_llm_language_name(lang)
+            answer, refs = DocumentQA(LlamaRuntimeManager.get_instance()).ask_with_references(
+                text,
+                question,
+                response_lang=get_llm_language_name(lang),
+                file_name=in_path.name,
             )
-            return JSONResponse({"filename": in_path.name, "lang": lang, "question": question, "answer": answer})
+            if exp_fmt:
+                ext = "pdf" if exp_fmt == "pdfa" else exp_fmt
+                out_path = in_path.parent / f"{in_path.stem}_consulta.{ext}"
+                turn = ChatTurnRecord(
+                    question=question,
+                    answer=answer,
+                    references=refs,
+                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                export_conversation_with_references(
+                    turns=[turn],
+                    output_path=str(out_path),
+                    output_format=exp_fmt,
+                    title=f"Consulta y Referencias Literales — {in_path.name}",
+                    documents_summary=[f"[DOC-1] {in_path.name}"],
+                )
+                return FileResponse(
+                    path=str(out_path),
+                    filename=out_path.name,
+                    media_type="application/octet-stream",
+                )
+
+            return JSONResponse({
+                "filename": in_path.name,
+                "lang": lang,
+                "question": question,
+                "answer": answer,
+                "references": [
+                    {
+                        "doc_id": r.doc_id,
+                        "ref_id": r.ref_id,
+                        "file_name": r.file_name,
+                        "section_path": r.section_path,
+                        "literal_text": r.literal_text,
+                    }
+                    for r in refs
+                ],
+            })
         except SecurityError as se:
             raise HTTPException(status_code=400, detail=str(se))
         except Exception as e:

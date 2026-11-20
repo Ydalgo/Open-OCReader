@@ -6,7 +6,8 @@ Permite cargar múltiples PDFs/imágenes sin desbordar el límite de contexto de
     a justificar cada afirmación citando [REF-N: Archivo — Sección].
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 from ..document_loader import DocumentLoader
@@ -19,13 +20,23 @@ from .runtime_manager import LlamaRuntimeManager
 
 @dataclass
 class ChatReference:
-    """Referencia trazable a un nodo concreto de un documento cargado."""
+    """Referencia trazable a un nodo concreto de un documento cargado, incluyendo su texto literal original."""
     ref_id: str
     doc_id: str
     file_name: str
     section_path: str
     score: float
     excerpt: str
+    literal_text: str = ""
+
+
+@dataclass
+class ChatTurnRecord:
+    """Registro completo de una consulta, su respuesta y las referencias literales extraídas."""
+    question: str
+    answer: str
+    references: List[ChatReference] = field(default_factory=list)
+    timestamp: str = ""
 
 
 class MultiDocumentChat:
@@ -38,6 +49,7 @@ class MultiDocumentChat:
         self.runtime = runtime or LlamaRuntimeManager.get_instance()
         self.documents: Dict[str, Tuple[str, ArbolNodosDocumento]] = {}  # path -> (file_name, tree)
         self.history: List[Dict[str, str]] = []
+        self.turn_records: List[ChatTurnRecord] = []
 
     @property
     def total_nodes(self) -> int:
@@ -46,6 +58,7 @@ class MultiDocumentChat:
     def clear(self) -> None:
         self.documents.clear()
         self.history.clear()
+        self.turn_records.clear()
 
     def remove_document(self, file_path: str) -> None:
         self.documents.pop(str(Path(file_path).resolve()), None)
@@ -165,6 +178,7 @@ class MultiDocumentChat:
                     section_path=section_path,
                     score=score,
                     excerpt=body[:180] + ("..." if len(body) > 180 else ""),
+                    literal_text=nodo.contenido.strip(),
                 )
             )
 
@@ -212,5 +226,13 @@ class MultiDocumentChat:
         # Guardar historial compacto (sin repetir el bloque de contexto completo)
         self.history.append({"role": "user", "content": question})
         self.history.append({"role": "assistant", "content": answer})
+        self.turn_records.append(
+            ChatTurnRecord(
+                question=question,
+                answer=answer,
+                references=refs,
+                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        )
 
         return answer, refs

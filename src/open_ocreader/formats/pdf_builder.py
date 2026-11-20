@@ -7,9 +7,12 @@ Soporta:
     con perfil de color sRGB OutputIntent y metadatos XMP pdfaid.
 """
 
+import html
 import io
 from datetime import datetime, timezone
-from typing import List, Tuple
+from typing import List, Optional, Tuple
+import numpy as np
+import pymupdf as fitz
 from PIL import Image, ImageCms, ImageOps
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -200,6 +203,129 @@ def build_sandwich_pdf(
         c.showPage()
 
     c.save()
+
+    if pdfa:
+        _apply_pdfa_metadata_and_profile(output_path, grayscale=grayscale)
+
+    return output_path
+
+
+def build_translated_pdf(
+    pages_with_boxes: List[Tuple[PageData, List[OCRBox]]],
+    output_path: str,
+    pdfa: bool = False,
+    compression: str = "high",
+    grayscale: bool = False,
+    preserve_layout: bool = True,
+    original_boxes_per_page: Optional[List[List[OCRBox]]] = None,
+) -> str:
+    """
+    Construye un PDF (o PDF/A-2b) con texto traducido visible y seleccionable Unicode.
+    - Si preserve_layout=True: conserva fondos, imágenes, logotipos y colores originales
+      limpiando el texto original mediante inpainting y superponiendo la traducción
+      en coordenadas equivalentes con color/tamaño reales.
+    - Si preserve_layout=False: genera páginas limpias fluidas sin imagen de fondo escaneada.
+    """
+    if not pages_with_boxes:
+        raise ValueError("No hay páginas para generar el PDF traducido.")
+
+    from .docx_builder import create_clean_background, sample_text_color_hex, _group_boxes_into_lines
+
+    preset = COMPRESSION_PRESETS.get(compression, COMPRESSION_PRESETS["high"])
+    doc = fitz.open()
+    try:
+        for idx, (page_data, trans_boxes) in enumerate(pages_with_boxes):
+            w_pt = max(float(page_data.width_pt), 100.0)
+            h_pt = max(float(page_data.height_pt), 100.0)
+            new_page = doc.new_page(width=w_pt, height=h_pt)
+
+            if preserve_layout:
+                erase_boxes = (
+                    original_boxes_per_page[idx]
+                    if (original_boxes_per_page and idx < len(original_boxes_per_page))
+                    else trans_boxes
+                )
+                clean_bg = create_clean_background(page_data.image, erase_boxes)
+                if grayscale:
+                    clean_bg = ImageOps.grayscale(clean_bg).convert("RGB")
+
+                max_side = preset["max_side"]
+                if max_side and max(clean_bg.size) > max_side:
+                    clean_bg.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+
+                buf = io.BytesIO()
+                clean_bg.save(buf, format="JPEG", quality=preset["quality"], optimize=True)
+                new_page.insert_image(new_page.rect, stream=buf.getvalue())
+
+                rgb_np = np.array(page_data.image.convert("RGB"))
+                scale_x = w_pt / float(max(page_data.width_px, 1))
+                scale_y = h_pt / float(max(page_data.height_px, 1))
+                heights = [b.height for b in trans_boxes] if trans_boxes else [15.0]
+                median_h = sorted(heights)[len(heights) // 2]
+
+                for b in trans_boxes:
+                    txt = (b.text or "").strip()
+                    if not txt:
+                        continue
+                    x_pt = max(2.0, min(w_pt - 20.0, b.min_x * scale_x))
+                    y_pt = max(2.0, min(h_pt - 14.0, b.min_y * scale_y))
+                    w_box = max(b.width * scale_x * 1.12, 24.0)
+                    h_box = max(b.height * scale_y * 1.28, 12.0)
+
+                    rect = fitz.Rect(
+                        x_pt,
+                        y_pt,
+                        min(w_pt - 2.0, x_pt + w_box),
+                        min(h_pt - 2.0, y_pt + h_box),
+                    )
+                    if rect.width < 4 or rect.height < 4:
+                        continue
+
+                    font_pt = max(5.5, min(h_box * 0.72, 64.0))
+                    color_hex = "111111" if grayscale else sample_text_color_hex(rgb_np, b)
+                    bold_css = "font-weight:bold;" if b.height > median_h * 1.35 else ""
+                    snippet = (
+                        f'<div style="font-family:sans-serif;font-size:{font_pt:.1f}pt;'
+                        f'color:#{color_hex};line-height:1.05;{bold_css}">{html.escape(txt)}</div>'
+                    )
+                    new_page.insert_htmlbox(rect, snippet, scale_low=0)
+            else:
+                lines = _group_boxes_into_lines(trans_boxes)
+                heights = [b.height for b in trans_boxes] if trans_boxes else [15.0]
+                median_h = sorted(heights)[len(heights) // 2]
+                html_parts = []
+                if lines:
+                    for line_boxes in lines:
+                        line_txt = " ".join((b.text or "").strip() for b in line_boxes if (b.text or "").strip())
+                        if not line_txt:
+                            continue
+                        max_h = max(b.height for b in line_boxes)
+                        if max_h > median_h * 1.35:
+                            html_parts.append(
+                                f'<h3 style="font-family:sans-serif;color:#1f4e79;margin:6px 0 4px 0;">'
+                                f'{html.escape(line_txt)}</h3>'
+                            )
+                        else:
+                            html_parts.append(
+                                f'<p style="font-family:sans-serif;font-size:10.5pt;color:#111111;'
+                                f'line-height:1.35;margin:3px 0;">{html.escape(line_txt)}</p>'
+                            )
+                else:
+                    raw_text = (page_data.embedded_text or "").strip()
+                    for para in raw_text.split("\n"):
+                        if para.strip():
+                            html_parts.append(
+                                f'<p style="font-family:sans-serif;font-size:10.5pt;color:#111111;'
+                                f'line-height:1.35;margin:3px 0;">{html.escape(para.strip())}</p>'
+                            )
+
+                body_html = f"<div>{''.join(html_parts) or '<p></p>'}</div>"
+                clean_rect = fitz.Rect(36, 36, max(72.0, w_pt - 36), max(72.0, h_pt - 36))
+                new_page.insert_htmlbox(clean_rect, body_html, scale_low=0)
+
+        doc.save(output_path, deflate=True, garbage=4)
+    finally:
+        doc.close()
 
     if pdfa:
         _apply_pdfa_metadata_and_profile(output_path, grayscale=grayscale)
