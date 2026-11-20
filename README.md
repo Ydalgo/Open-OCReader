@@ -209,9 +209,10 @@ Un pilar fundamental de la arquitectura y la ingeniería de contexto de **Open O
 > 🌟 **¿Te interesa la Inteligencia Artificial Local, Soberana y Privada?**
 > Te invitamos cordialmente a conocer, dar una estrella ⭐ y seguir el desarrollo de **[GuarIdA](https://github.com/Ydalgo/GuarIdA)**. El proyecto se encuentra actualmente en desarrollo activo y ampliará sustancialmente las capacidades de asistencia soberana, análisis de identidad y privacidad documental.
 
-### 🌐 Servidor API y Compilación Nativa
+### 🌐 Servidor API, Compilación Nativa y Seguridad Continua
 * **[FastAPI](https://fastapi.tiangolo.com/)**, **[Uvicorn](https://www.uvicorn.org/)** y **[Nginx](https://nginx.org/)**: Base del modo servidor REST endurecido, documentación interactiva Swagger UI y despliegue con cifrado **TLS 1.3**.
 * **[Nuitka](https://nuitka.net/)** y **[PyInstaller](https://pyinstaller.org/)**: Herramientas de compilación que permiten empaquetar Open OCReader en ejecutables independientes para ordenadores sin Python instalado.
+* **[GitHub Dependabot](https://github.com/dependabot)**: Nuestro agradecimiento especial al bot oficial de mantenimiento y seguridad de GitHub por auditar continuamente la cadena de suministro (`requirements.txt` y `requirements.lock.txt`), alertar sobre vulnerabilidades (CVEs) y proponer actualizaciones automáticas verificadas para mantener Open OCReader siempre seguro.
 
 ---
 
@@ -227,6 +228,7 @@ Un pilar fundamental de la arquitectura y la ingeniería de contexto de **Open O
 * **Autores**:
   * **[Ydalgo](https://github.com/Ydalgo)** — Creador y mantenedor del proyecto
   * **[Antigravity](https://deepmind.google/)** (Google DeepMind) — Asistente de arquitectura, seguridad y desarrollo
+  * **[GitHub Dependabot (`dependabot[bot]`)](https://github.com/dependabot)** — Vigilancia automatizada de vulnerabilidades y mantenimiento continuo de dependencias seguras (`pip`)
 
 * **Documentación y Colaboración**:
   * Guía de instalación: [docs/INSTALACION_Y_USO.md](docs/INSTALACION_Y_USO.md)

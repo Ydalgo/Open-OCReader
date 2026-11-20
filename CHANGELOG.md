@@ -21,6 +21,9 @@ Todos los cambios notables de este proyecto se documentan en este fichero.
   * Traducción contextual completa directa a **10 formatos** (`PDF`, `PDF/A-2b`, `Word .docx`, `LibreOffice .odt`, `eBook .epub`, `XLSX`, `ODS`, `CSV`, `TXT`, `JSON`), con fusión de líneas sin mezclar columnas (`merge_boxes_into_contextual_lines`), preservación de fondos/imágenes (*inpainting* sobre cajas originales), escala de grises, compresión y endpoint REST `POST /api/v1/ai/translate-document`.
 * **Exportación de Conversaciones y Preguntas con Referencias Literales (`conversation_exporter.py`)**:
   * En **💬 Chat con Archivos** y **🧠 IA y Manuscritos** (con barra directa de pregunta integrada), exportación completa a **8 formatos** (`DOCX`, `PDF`, `PDF/A-2b`, `ODT`, `EPUB`, `Markdown`, `TXT`, `JSON`) anexando para cada cita el **texto literal íntegro extraído de los documentos originales**, además de soporte `export_format` y `references[].literal_text` en `POST /api/v1/ai/ask`.
+* **Actualización de Dependencias y Agradecimiento a GitHub Dependabot (`PR #1`)**:
+  * Integración y fusión limpia del Pull Request #1 de `dependabot[bot]` (`pillow>=13.0.0`, `pypdf>=6.21.4`, `python-multipart>=0.0.31`) manteniendo actualizadas las librerías en `requirements.txt` y `requirements.lock.txt`.
+  * Agradecimiento formal a **GitHub Dependabot** en `README.md` y `SECURITY.md` por su auditoría continua de la cadena de suministro.
 
 ### Seguridad y Auditoría Completa
 * **Mitigación contra Inyección Indirecta de Prompts (Indirect Prompt Injection)**:
